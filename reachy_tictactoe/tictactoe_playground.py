@@ -679,18 +679,26 @@ class TictactoePlayground(object):
         
     def wait_for_img(self):
         """Attend qu'une image soit disponible"""
+        # MODE TEST: Désactiver le timeout strict pour éviter les reboots
+        # TODO: Réactiver quand la caméra sera configurée
         start = time.time()
-        while time.time() - start <= 30:
+        timeout = 5  # Réduit à 5 secondes au lieu de 30
+        
+        while time.time() - start <= timeout:
             try:
                 img = self.reachy.right_camera.read()
                 if img is not None and len(img) > 0:
+                    logger.info('Image received from camera')
                     return
-            except Exception:
+            except Exception as e:
+                logger.debug(f'Camera read attempt failed: {e}')
                 pass
             time.sleep(0.1)
             
-        logger.warning('No image received for 30 sec, going to reboot.')
-        os.system('sudo reboot')
+        # MODE TEST: Ne pas rebooter, juste logger l'erreur
+        logger.warning(f'No image received after {timeout} sec. Camera may not be configured.')
+        logger.warning('Continuing without camera (TEST MODE)')
+        # os.system('sudo reboot')  # Désactivé en mode test
         
     def need_cooldown(self):
         """Vérifie si un refroidissement est nécessaire"""
