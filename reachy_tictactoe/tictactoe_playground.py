@@ -571,23 +571,28 @@ class TictactoePlayground(object):
         """
         # Parcourir tous les joints disponibles
         try:
-            # Essayer d'accéder au joint via le dictionnaire joints
-            if joint_name in self.reachy.joints:
-                return self.reachy.joints[joint_name]
-            
-            # Méthode alternative: accès hiérarchique
+            # Méthode 1: Accès direct par attribut
             parts = joint_name.split('.')
             if len(parts) == 2:
                 part_name, joint_short_name = parts
+                
+                # Accès direct via attribut (ex: reachy.r_arm.r_shoulder_pitch)
                 if part_name == 'r_arm' and hasattr(self.reachy, 'r_arm'):
-                    if joint_short_name in self.reachy.r_arm.joints:
-                        return self.reachy.r_arm.joints[joint_short_name]
+                    if hasattr(self.reachy.r_arm, joint_short_name):
+                        return getattr(self.reachy.r_arm, joint_short_name)
                 elif part_name == 'l_arm' and hasattr(self.reachy, 'l_arm'):
-                    if joint_short_name in self.reachy.l_arm.joints:
-                        return self.reachy.l_arm.joints[joint_short_name]
+                    if hasattr(self.reachy.l_arm, joint_short_name):
+                        return getattr(self.reachy.l_arm, joint_short_name)
                 elif part_name == 'head' and hasattr(self.reachy, 'head'):
-                    if joint_short_name in self.reachy.head.joints:
-                        return self.reachy.head.joints[joint_short_name]
+                    if hasattr(self.reachy.head, joint_short_name):
+                        return getattr(self.reachy.head, joint_short_name)
+            
+            # Méthode 2: Essayer via le dictionnaire joints (si disponible)
+            if hasattr(self.reachy, 'joints') and hasattr(self.reachy.joints, '__getitem__'):
+                try:
+                    return self.reachy.joints[joint_name]
+                except (KeyError, TypeError):
+                    pass
                         
             logger.warning(f'Joint not found: {joint_name}')
             return None
