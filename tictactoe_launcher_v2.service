@@ -1,0 +1,19 @@
+[Unit]
+Description=TicTacToe Playground Service (SDK 2021)
+Wants=network-online.target
+After=network.target network-online.target
+
+[Service]
+PIDFile=/var/run/tictactoe.pid
+Environment="PATH=/home/reachy/dev/reachy-2019-tictactoe/venv/bin:$PATH"
+ExecStart=/home/reachy/dev/reachy-2019-tictactoe/venv/bin/python -m reachy_tictactoe.game_launcher --log-file /home/reachy/dev/reachy-2019-tictactoe/gamelog --host localhost
+User=reachy
+Group=reachy
+WorkingDirectory=/home/reachy/dev/reachy-2019-tictactoe
+Type=simple
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
