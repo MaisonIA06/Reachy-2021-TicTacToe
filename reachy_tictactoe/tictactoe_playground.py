@@ -144,7 +144,7 @@ class TictactoePlayground(object):
         
         # Capturer l'image depuis la caméra droite
         try:
-            img = self.reachy.right_camera.read()
+            img = self.reachy.right_camera.last_frame
         except Exception as e:
             logger.warning(f'Failed to read camera: {e}')
             return None
@@ -686,7 +686,7 @@ class TictactoePlayground(object):
         
         while time.time() - start <= timeout:
             try:
-                img = self.reachy.right_camera.read()
+                img = self.reachy.right_camera.last_frame
                 if img is not None and len(img) > 0:
                     logger.info('Image received from camera')
                     return
