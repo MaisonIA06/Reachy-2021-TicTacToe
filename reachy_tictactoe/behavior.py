@@ -62,10 +62,11 @@ def head_home(reachy, duration=1.0):
         reachy: Instance ReachySDK
         duration: Durée du mouvement
     """
+    # CORRECTION: Utiliser objets Joint au lieu de chaînes
     goto(
         goal_positions={
-            'head.l_antenna': 0.0,
-            'head.r_antenna': 0.0,
+            reachy.head.l_antenna: 0.0,
+            reachy.head.r_antenna: 0.0,
         },
         duration=duration,
         interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -94,10 +95,11 @@ def sad(reachy):
     ]
     
     for antenna_pos, dur in positions:
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(antenna_pos),
-                'head.r_antenna': np.deg2rad(-antenna_pos),
+                reachy.head.l_antenna: np.deg2rad(antenna_pos),
+                reachy.head.r_antenna: np.deg2rad(-antenna_pos),
             },
             duration=dur,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -122,10 +124,11 @@ def happy(reachy):
     pos = 10 * np.sin(2 * np.pi * 5 * t)  # Oscillation rapide
     
     for p in pos:
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(p),
-                'head.r_antenna': np.deg2rad(-p),
+                reachy.head.l_antenna: np.deg2rad(p),
+                reachy.head.r_antenna: np.deg2rad(-p),
             },
             duration=0.01,
             interpolation_mode=InterpolationMode.LINEAR,
@@ -148,10 +151,11 @@ def surprise(reachy):
     logger.info('Starting behavior', extra={'behavior': 'surprise'})
     
     # Mouvement rapide et asymétrique des antennes pour exprimer la surprise
+    # CORRECTION: Utiliser objets Joint
     goto(
         goal_positions={
-            'head.l_antenna': np.deg2rad(-5),
-            'head.r_antenna': np.deg2rad(-90),
+            reachy.head.l_antenna: np.deg2rad(-5),
+            reachy.head.r_antenna: np.deg2rad(-90),
         },
         duration=0.3,
         interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -176,20 +180,22 @@ def celebrate(reachy):
     # Animation élaborée pour une grande victoire
     for _ in range(3):
         # Mouvement rapide haut-bas
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(180),
-                'head.r_antenna': np.deg2rad(-180),
+                reachy.head.l_antenna: np.deg2rad(180),
+                reachy.head.r_antenna: np.deg2rad(-180),
             },
             duration=0.5,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
         time.sleep(0.5)
         
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(0),
-                'head.r_antenna': np.deg2rad(0),
+                reachy.head.l_antenna: np.deg2rad(0),
+                reachy.head.r_antenna: np.deg2rad(0),
             },
             duration=0.5,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -202,10 +208,11 @@ def celebrate(reachy):
     pos = 45 * np.sin(2 * np.pi * 3 * t)
     
     for p in pos:
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(p),
-                'head.r_antenna': np.deg2rad(-p),
+                reachy.head.l_antenna: np.deg2rad(p),
+                reachy.head.r_antenna: np.deg2rad(-p),
             },
             duration=0.01,
             interpolation_mode=InterpolationMode.LINEAR,
@@ -232,10 +239,11 @@ def thinking(reachy):
     pos = 30 + 20 * np.sin(2 * np.pi * 0.5 * t)
     
     for p in pos:
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(p),
-                'head.r_antenna': np.deg2rad(p),  # Même direction = réflexion
+                reachy.head.l_antenna: np.deg2rad(p),
+                reachy.head.r_antenna: np.deg2rad(p),  # Même direction = réflexion
             },
             duration=0.01,
             interpolation_mode=InterpolationMode.LINEAR,
@@ -258,20 +266,22 @@ def wave_hello(reachy):
     
     # Animation des antennes pour accompagner le salut
     for _ in range(3):
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(45),
-                'head.r_antenna': np.deg2rad(-45),
+                reachy.head.l_antenna: np.deg2rad(45),
+                reachy.head.r_antenna: np.deg2rad(-45),
             },
             duration=0.4,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
         time.sleep(0.4)
         
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(-45),
-                'head.r_antenna': np.deg2rad(45),
+                reachy.head.l_antenna: np.deg2rad(-45),
+                reachy.head.r_antenna: np.deg2rad(45),
             },
             duration=0.4,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -294,20 +304,22 @@ def impatient(reachy):
     
     # Mouvements rapides et saccadés
     for _ in range(5):
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(90),
-                'head.r_antenna': np.deg2rad(-90),
+                reachy.head.l_antenna: np.deg2rad(90),
+                reachy.head.r_antenna: np.deg2rad(-90),
             },
             duration=0.2,
             interpolation_mode=InterpolationMode.LINEAR,
         )
         time.sleep(0.2)
         
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(0),
-                'head.r_antenna': np.deg2rad(0),
+                reachy.head.l_antenna: np.deg2rad(0),
+                reachy.head.r_antenna: np.deg2rad(0),
             },
             duration=0.2,
             interpolation_mode=InterpolationMode.LINEAR,

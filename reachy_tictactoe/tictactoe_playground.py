@@ -48,8 +48,8 @@ class TictactoePlayground(object):
         # Position initiale des antennes
         goto(
             goal_positions={
-                'head.l_antenna': 0.0,
-                'head.r_antenna': 0.0,
+                self.reachy.head.l_antenna: 0.0,
+                self.reachy.head.r_antenna: 0.0,
             },
             duration=2.0,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -231,7 +231,7 @@ class TictactoePlayground(object):
             
             for pp in p:
                 goto(
-                    goal_positions={'head.l_antenna': np.deg2rad(pp)},
+                    goal_positions={self.reachy.head.l_antenna: np.deg2rad(pp)},
                     duration=0.01,
                     interpolation_mode=InterpolationMode.LINEAR,
                 )
@@ -337,8 +337,8 @@ class TictactoePlayground(object):
         # Animation des antennes
         goto(
             goal_positions={
-                'head.l_antenna': np.deg2rad(45),
-                'head.r_antenna': np.deg2rad(-45),
+                self.reachy.head.l_antenna: np.deg2rad(45),
+                self.reachy.head.r_antenna: np.deg2rad(-45),
             },
             duration=1.0,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -346,11 +346,11 @@ class TictactoePlayground(object):
         
         # Ajustement pour les pions éloignés
         if grab_index >= 4:
-            current_pos = self.get_joint_positions(['r_arm'])
+            # CORRECTION: Utiliser objets Joint
             goto(
                 goal_positions={
-                    'r_arm.r_shoulder_pitch': current_pos['r_arm.r_shoulder_pitch'] + np.deg2rad(10),
-                    'r_arm.r_elbow_pitch': current_pos['r_arm.r_elbow_pitch'] - np.deg2rad(30),
+                    self.reachy.r_arm.r_shoulder_pitch: self.reachy.r_arm.r_shoulder_pitch.present_position + np.deg2rad(10),
+                    self.reachy.r_arm.r_elbow_pitch: self.reachy.r_arm.r_elbow_pitch.present_position - np.deg2rad(30),
                 },
                 duration=1.0,
                 interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -389,8 +389,8 @@ class TictactoePlayground(object):
         # Remettre les antennes à zéro
         goto(
             goal_positions={
-                'head.l_antenna': 0.0,
-                'head.r_antenna': 0.0,
+                self.reachy.head.l_antenna: 0.0,
+                self.reachy.head.r_antenna: 0.0,
             },
             duration=0.2,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
@@ -511,19 +511,23 @@ class TictactoePlayground(object):
             goal_positions: dict {nom_joint: position_cible}
             duration: Durée du mouvement
         """
-        # Adapter les noms de joints de l'ancien format vers le nouveau
-        adapted_positions = {}
+        # CORRECTION: Convertir les noms de joints en objets Joint
+        joint_positions = {}
         for old_name, pos in goal_positions.items():
             # Conversion des anciens noms vers les nouveaux noms du SDK 2021
             new_name = self._adapt_joint_name(old_name)
-            # Convertir les degrés en radians si nécessaire
-            if isinstance(pos, (int, float)):
-                adapted_positions[new_name] = np.deg2rad(pos) if pos > 6.28 or pos < -6.28 else pos
-            else:
-                adapted_positions[new_name] = pos
+            # Récupérer l'objet Joint correspondant
+            joint_obj = self._get_joint_by_name(new_name)
+            if joint_obj is not None:
+                # Convertir les degrés en radians si nécessaire
+                if isinstance(pos, (int, float)):
+                    position_value = np.deg2rad(pos) if pos > 6.28 or pos < -6.28 else pos
+                else:
+                    position_value = pos
+                joint_positions[joint_obj] = position_value
                 
         goto(
-            goal_positions=adapted_positions,
+            goal_positions=joint_positions,
             duration=duration,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
@@ -555,6 +559,43 @@ class TictactoePlayground(object):
         
         return mapping.get(old_name, old_name)
         
+    def _get_joint_by_name(self, joint_name):
+        """
+        Récupère un objet Joint à partir de son nom
+        
+        Args:
+            joint_name: Nom du joint (ex: 'r_arm.r_shoulder_pitch')
+            
+        Returns:
+            Joint: Objet Joint ou None si non trouvé
+        """
+        # Parcourir tous les joints disponibles
+        try:
+            # Essayer d'accéder au joint via le dictionnaire joints
+            if joint_name in self.reachy.joints:
+                return self.reachy.joints[joint_name]
+            
+            # Méthode alternative: accès hiérarchique
+            parts = joint_name.split('.')
+            if len(parts) == 2:
+                part_name, joint_short_name = parts
+                if part_name == 'r_arm' and hasattr(self.reachy, 'r_arm'):
+                    if joint_short_name in self.reachy.r_arm.joints:
+                        return self.reachy.r_arm.joints[joint_short_name]
+                elif part_name == 'l_arm' and hasattr(self.reachy, 'l_arm'):
+                    if joint_short_name in self.reachy.l_arm.joints:
+                        return self.reachy.l_arm.joints[joint_short_name]
+                elif part_name == 'head' and hasattr(self.reachy, 'head'):
+                    if joint_short_name in self.reachy.head.joints:
+                        return self.reachy.head.joints[joint_short_name]
+                        
+            logger.warning(f'Joint not found: {joint_name}')
+            return None
+            
+        except Exception as e:
+            logger.error(f'Error accessing joint {joint_name}: {e}')
+            return None
+        
     def play_trajectory(self, trajectory_dict):
         """
         Joue une trajectoire complète
@@ -562,11 +603,17 @@ class TictactoePlayground(object):
         Args:
             trajectory_dict: dict {nom_joint: array_positions}
         """
-        # Adapter les noms de joints
+        # CORRECTION: Adapter les noms de joints et convertir en objets Joint
         adapted_traj = {}
         for old_name, positions in trajectory_dict.items():
             new_name = self._adapt_joint_name(old_name)
-            adapted_traj[new_name] = positions
+            joint_obj = self._get_joint_by_name(new_name)
+            if joint_obj is not None:
+                adapted_traj[joint_obj] = positions
+            
+        if not adapted_traj:
+            logger.warning('No valid joints found in trajectory')
+            return
             
         # Déterminer la durée totale basée sur le nombre de points
         num_points = len(list(adapted_traj.values())[0])
@@ -575,7 +622,7 @@ class TictactoePlayground(object):
         # Jouer la trajectoire point par point
         for i in range(num_points):
             point = {
-                joint: traj[i] for joint, traj in adapted_traj.items()
+                joint_obj: traj[i] for joint_obj, traj in adapted_traj.items()
             }
             goto(
                 goal_positions=point,
@@ -607,8 +654,9 @@ class TictactoePlayground(object):
         
     def close_gripper(self):
         """Ferme la pince"""
+        # CORRECTION: Utiliser objet Joint
         goto(
-            goal_positions={'r_arm.r_gripper': np.deg2rad(-45)},
+            goal_positions={self.reachy.r_arm.r_gripper: np.deg2rad(-45)},
             duration=0.5,
             interpolation_mode=InterpolationMode.LINEAR,
         )
@@ -616,8 +664,9 @@ class TictactoePlayground(object):
         
     def open_gripper(self):
         """Ouvre la pince"""
+        # CORRECTION: Utiliser objet Joint
         goto(
-            goal_positions={'r_arm.r_gripper': np.deg2rad(20)},
+            goal_positions={self.reachy.r_arm.r_gripper: np.deg2rad(20)},
             duration=0.5,
             interpolation_mode=InterpolationMode.LINEAR,
         )
@@ -696,10 +745,11 @@ class TictactoePlayground(object):
             
             while self._idle_running.is_set():
                 p = offset + amp * np.sin(2 * np.pi * f * time.time())
+                # CORRECTION: Utiliser objets Joint
                 goto(
                     goal_positions={
-                        'head.l_antenna': np.deg2rad(p),
-                        'head.r_antenna': np.deg2rad(-p),
+                        self.reachy.head.l_antenna: np.deg2rad(p),
+                        self.reachy.head.r_antenna: np.deg2rad(-p),
                     },
                     duration=0.01,
                     interpolation_mode=InterpolationMode.LINEAR,
@@ -714,10 +764,11 @@ class TictactoePlayground(object):
         self._idle_running.clear()
         self._idle_t.join()
         
+        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
-                'head.l_antenna': 0.0,
-                'head.r_antenna': 0.0,
+                self.reachy.head.l_antenna: 0.0,
+                self.reachy.head.r_antenna: 0.0,
             },
             duration=1.0,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
