@@ -52,6 +52,27 @@ Ou si ce package n'est pas disponible, utilisez TensorFlow complet :
 pip install tensorflow
 ```
 
+### ⚠️ 4. Problème EdgeTPU (Important pour NUC sans accélérateur)
+
+Les modèles `.tflite` inclus sont compilés pour **EdgeTPU** et ne fonctionneront PAS sur un NUC standard.
+
+**Si vous obtenez l'erreur** `RuntimeError: Encountered unresolved custom op: edgetpu-custom-op` :
+
+#### Solution rapide (modèles de test) :
+
+```bash
+# Créer des modèles de remplacement pour CPU
+python scripts/create_fallback_models.py
+```
+
+**⚠️ Ces modèles sont des placeholders** et ne détectent pas vraiment les pièces.
+
+#### Solution complète :
+
+Consultez **[EDGE_TPU_CONVERSION.md](EDGE_TPU_CONVERSION.md)** pour :
+- Reconvertir les modèles originaux pour CPU
+- Ou ajouter un accélérateur EdgeTPU USB
+
 ## 🚀 Utilisation
 
 ### Lancement du jeu
