@@ -163,21 +163,21 @@ except FileNotFoundError as e:
 
 # Coordonnées des cases du plateau
 board_cases = np.array((
-    ((84, 84, 227, 227),  # Case (0,0) - coin supérieur gauche
-     (182, 182, 210, 210),  # Case (0,1)
-     (282, 282, 202, 202)),  # Case (0,2)
+    ((51, 124, 204, 243),  # Case (0,0) - coin supérieur gauche
+     (145, 228, 191, 229),  # Case (0,1)
+     (245, 327, 180, 219)),  # Case (0,2)
      
-    ((82, 82, 309, 309),  # Case (1,0)
-     (199, 199, 295, 295),  # Case (1,1)
-     (311, 312, 272, 272)),  # Case (1,2)
+    ((41, 127, 278, 338),  # Case (1,0)
+     (149, 248, 262, 320),  # Case (1,1)
+     (264, 358, 248, 303)),  # Case (1,2)
      
-    ((72, 72, 421, 421),  # Case (2,0)
-     (209, 209, 399, 399),  # Case (2,1)
-     (338, 338, 382, 382)),  # Case (2,2)
+    ((32, 132, 382, 460),  # Case (2,0)
+     (163, 269, 364, 442),  # Case (2,1)
+     (297, 387, 342, 419)),  # Case (2,2)
 ))
 
 # Zone du plateau (left, right, top, bottom)
-board_rect = np.array((250, 700, 350, 1000))
+board_rect = np.array((30, 700, 350, 1000))
 
 
 def get_board_configuration(img):
