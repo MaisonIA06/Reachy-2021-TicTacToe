@@ -88,6 +88,13 @@ def convert_to_tflite(model, output_path, quantize=False):
         tf.lite.OpsSet.TFLITE_BUILTINS,  # Opérations TFLite standard UNIQUEMENT
     ]
     
+    # NOUVEAU : Forcer la compatibilité avec TFLite v1
+    # Cela évite l'utilisation d'opérations trop récentes
+    converter._experimental_lower_tensor_list_ops = False
+
+    # NOUVEAU : Désactiver les optimisations qui peuvent causer des incompatibilités
+    converter.experimental_new_converter = False
+
     # Convertir
     tflite_model = converter.convert()
     
