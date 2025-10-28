@@ -284,7 +284,7 @@ def is_board_valid(img):
             'score': score,
         })
         
-        return label == 'valid' and score > 0.50
+        return label == 'valid' and score > 0.65
         
     except Exception as e:
         logger.error(f'Board validation failed: {e}')
