@@ -121,11 +121,10 @@ class TictactoePlayground(object):
             duration: Durée du mouvement
         """
         try:
-            # Convertir les coordonnées en angles de rotation pour la tête
-            # Note: Cette fonction nécessite une implémentation custom car look_at
-            # n'existe pas tel quel dans le SDK 2021
-            # Pour l'instant, on utilise une orientation fixe
-            pass
+            # SDK 2021: Utiliser la méthode look_at de head
+            # Format: reachy.head.look_at(x, y, z, duration)
+            self.reachy.head.look_at(x=x, y=y, z=z, duration=duration)
+            time.sleep(duration)  # Attendre la fin du mouvement
         except Exception as e:
             logger.warning(f'Look at failed: {e}')
             
@@ -135,8 +134,9 @@ class TictactoePlayground(object):
         self.reachy.turn_on('head')
         time.sleep(0.1)
         
-        # Regarder vers le plateau
-        # Position fixe pour regarder le plateau
+        # Regarder vers le plateau (position calibrée dans Check_boxes.ipynb)
+        # z=-0.6 pour voir le plateau complet
+        self.reachy.head.look_at(x=0.5, y=0, z=-0.6, duration=1.0)
         time.sleep(0.2)
         
         # Attendre une image de la caméra
