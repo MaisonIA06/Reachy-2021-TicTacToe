@@ -70,7 +70,7 @@ def create_simple_model(num_classes, input_shape=(224, 224, 3)):
 
 def convert_to_tflite_compatible(model, output_path):
     """
-    Convertit en TFLite avec compatibilité maximale
+    Convertit en TFLite avec compatibilité maximale (Keras 3 compatible)
     """
     import tempfile
     import shutil
@@ -79,11 +79,23 @@ def convert_to_tflite_compatible(model, output_path):
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Sauvegarder d'abord en format SavedModel
-        print(f"   Sauvegarde temporaire en SavedModel...")
-        model.save(temp_dir, save_format='tf')
+        # Créer une fonction concrète pour la conversion
+        print(f"   Préparation du modèle pour conversion...")
         
-        # Convertir depuis SavedModel (plus compatible)
+        # Créer une signature d'entrée
+        @tf.function(input_signature=[tf.TensorSpec(shape=[None, 224, 224, 3], dtype=tf.float32)])
+        def serve(x):
+            return model(x, training=False)
+        
+        # Sauvegarder avec la nouvelle API Keras 3
+        print(f"   Sauvegarde temporaire en SavedModel...")
+        tf.saved_model.save(
+            model,
+            temp_dir,
+            signatures={'serving_default': serve}
+        )
+        
+        # Convertir depuis SavedModel
         print(f"   Conversion en TFLite...")
         converter = tf.lite.TFLiteConverter.from_saved_model(temp_dir)
         
@@ -106,6 +118,25 @@ def convert_to_tflite_compatible(model, output_path):
         print(f"  Taille: {len(tflite_model) / 1024:.1f} KB")
         
         return len(tflite_model)
+        
+    except Exception as e:
+        print(f"❌ Erreur lors de la conversion: {e}")
+        # Essayer une méthode alternative : conversion directe
+        print("   Tentative de conversion directe...")
+        try:
+            converter = tf.lite.TFLiteConverter.from_keras_model(model)
+            converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
+            tflite_model = converter.convert()
+            
+            with open(output_path, 'wb') as f:
+                f.write(tflite_model)
+            
+            print(f"✓ Modèle créé (méthode alternative): {os.path.basename(output_path)}")
+            print(f"  Taille: {len(tflite_model) / 1024:.1f} KB")
+            return len(tflite_model)
+        except Exception as e2:
+            print(f"❌ Échec de la conversion alternative: {e2}")
+            raise
         
     finally:
         # Nettoyer le répertoire temporaire
