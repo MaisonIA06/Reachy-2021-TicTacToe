@@ -22,8 +22,23 @@ def find_board(board_img):
     horizontal, vertical = [], []
     for line in lines:
         for x1, y1, x2, y2 in line:
-            a = (y2 - y1) / (x2 - x1)
-            b = y1 - a * x1
+            # Eviter la division par zéro
+            dx = x2 - x1
+            dy = y2 - y1
+
+            #Ignorer les lignes de longueur nulle
+            if dx == 0 or dy == 0:
+                continue
+
+            #Cas d'une ligne verticale parfaite (dx=0)
+            if dx == 0:
+                #Ligne verticale : utiliser une pente trés grande
+                a = float('inf')
+                b = x1 #pour calculer l'ordonnée à l'origine
+                vertical.append((a, b))
+            else:
+                a = dy / dx
+                b = y1 - a * x1
 
             if np.abs(a) < 0.1:
                 horizontal.append((a, b))
