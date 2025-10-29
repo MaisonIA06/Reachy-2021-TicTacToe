@@ -2,7 +2,7 @@ import cv2 as cv
 import numpy as np
 
 # Charger l'image capturée
-img = cv.imread('/tmp/snap.553.jpg')
+img = cv.imread('/tmp/snap.798.jpg')
 
 # Coordonnées actuelles du plateau
 lx, rx, ly, ry = 38, 427, 196, 529
