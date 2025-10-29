@@ -177,7 +177,7 @@ board_cases = np.array((
 ))
 
 # Zone du plateau (left, right, top, bottom)
-board_rect = np.array((38, 427, 196, 429))
+board_rect = np.array((250, 700, 350, 1000))
 
 
 def get_board_configuration(img):
@@ -284,7 +284,7 @@ def is_board_valid(img):
             'score': score,
         })
         
-        return label == 'valid' and score > 0.50
+        return label == 'valid' and score > 0.65
         
     except Exception as e:
         logger.error(f'Board validation failed: {e}')
