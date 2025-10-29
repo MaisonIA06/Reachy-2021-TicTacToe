@@ -5,7 +5,7 @@ import numpy as np
 img = cv.imread('/tmp/snap.553.jpg')
 
 # Coordonnées actuelles du plateau
-lx, rx, ly, ry = 138, 427, 196, 429
+lx, rx, ly, ry = 38, 427, 196, 629
 
 # Dessiner un rectangle sur la zone extraite
 img_debug = img.copy()
