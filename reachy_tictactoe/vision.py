@@ -177,7 +177,7 @@ board_cases = np.array((
 ))
 
 # Zone du plateau (left, right, top, bottom)
-board_rect = np.array((250, 700, 350, 1000))
+board_rect = np.array((38, 427, 196, 529))
 
 
 def get_board_configuration(img):
