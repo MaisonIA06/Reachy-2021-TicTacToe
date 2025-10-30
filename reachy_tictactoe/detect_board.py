@@ -107,7 +107,7 @@ def find_board_cases(board_img):
 
 
 def get_board_cases(img):
-    ly, ry, lx, rx = 325, 700, 275, 710
+    ly, ry, lx, rx = 168, 556, 12, 463
     img = img[ly:ry, lx:rx, :]
 
     cases = find_board_cases(img)
