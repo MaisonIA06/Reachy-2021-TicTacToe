@@ -149,8 +149,8 @@ def train_boxes_model(data_dir='training_data/boxes',
         batch_size=batch_size,
         class_mode='categorical',
         subset='training',
-        shuffle=True
-        class_names=class_names
+        shuffle=True,
+        classes=class_names
     )
     
     val_generator = train_datagen.flow_from_directory(
@@ -159,8 +159,8 @@ def train_boxes_model(data_dir='training_data/boxes',
         batch_size=batch_size,
         class_mode='categorical',
         subset='validation',
-        shuffle=False
-        class_names=class_names
+        shuffle=False,
+        classes=class_names
     )
     
     print(f"✅ Données d'entraînement: {train_generator.samples} images")
