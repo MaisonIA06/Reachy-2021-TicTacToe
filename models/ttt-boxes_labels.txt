@@ -1,0 +1,3 @@
+0 cube
+1 cylinder
+2 empty
