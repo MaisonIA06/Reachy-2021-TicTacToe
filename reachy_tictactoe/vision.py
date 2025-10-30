@@ -189,14 +189,17 @@ def get_board_configuration(img):
     # AJOUT: Logger la taille de l'image
     logger.info(f'Image dimensions: {img.shape}')
     
-    # Essayer de détecter dynamiquement les cases
-    try:
-        custom_board_cases = get_board_cases(img)
-        logger.info('Using dynamically detected board cases')
-    except Exception as e:
-        logger.warning('Board detection failed, using default coordinates', 
-                      extra={'error': str(e)})
-        custom_board_cases = board_cases
+    custom_board_cases = board_cases
+    logger.debug("using static board coordinates")
+
+    # Note: Vous pouvez réactiver la détection dynamique plus tard si besoin
+    # try:
+    #     custom_board_cases = get_board_cases(img)
+    #     logger.info('Using dynamically detected board cases')
+    # except Exception as e:
+    #     logger.warning('Board detection failed, using default coordinates', 
+    #                   extra={'error': str(e)})
+    #     custom_board_cases = board_cases
         
     sanity_check = True
     
@@ -301,7 +304,7 @@ def is_board_valid(img):
             'score': score,
         })
         
-        return label == '1 valid' and score > 0.50
+        return label == '0 valid' and score > 0.65
         
     except Exception as e:
         logger.error(f'Board validation failed: {e}')
