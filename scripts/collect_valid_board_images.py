@@ -16,6 +16,10 @@ import time
 import os
 from datetime import datetime
 from reachy_sdk import ReachySDK
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from reachy_tictactoe.vision import board_rect
 
 
 def warm_up_head(reachy, cycles=10):
@@ -56,6 +60,10 @@ def capture_board(reachy, save_dir, class_label):
         print("❌ Erreur: pas d'image capturée")
         return False
     
+    # Extraire la zone du plateau
+    lx, rx, ly, ry = board_rect
+    board_img = img[ly:ry, lx:rx]
+    print(f"  📏 Zone extraite: {board_img.shape} (hauteur={ry-ly}, largeur={rx-lx})")
     # Revenir en position repos
     reachy.head.look_at(x=0.5, y=0, z=0, duration=1.0)
     
@@ -64,6 +72,7 @@ def capture_board(reachy, save_dir, class_label):
     filename = f"{class_label}_{timestamp}.jpg"
     filepath = os.path.join(save_dir, filename)
     cv2.imwrite(filepath, img)
+    print(f"  ✅ Image sauvegardée: {filepath}")
     
     return True
 
