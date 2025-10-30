@@ -1,2 +1,2 @@
-1 invalid
-0 valid
+0 invalid
+1 valid
