@@ -183,21 +183,16 @@ board_rect = np.array((12, 463, 168, 556))
 def get_board_configuration(img):
     """
     Analyse l'image pour déterminer l'état du plateau
-    
-    Args:
-        img: Image numpy array (BGR)
-        
-    Returns:
-        tuple: (board, sanity_check)
-            - board: array 3x3 avec l'état de chaque case
-            - sanity_check: bool indiquant si l'analyse est fiable
     """
     board = np.zeros((3, 3), dtype=np.uint8)
     
+    # AJOUT: Logger la taille de l'image
+    logger.info(f'Image dimensions: {img.shape}')
+    
     # Essayer de détecter dynamiquement les cases
-    # Si ça échoue, utiliser les coordonnées prédéfinies
     try:
         custom_board_cases = get_board_cases(img)
+        logger.info('Using dynamically detected board cases')
     except Exception as e:
         logger.warning('Board detection failed, using default coordinates', 
                       extra={'error': str(e)})
@@ -209,7 +204,29 @@ def get_board_configuration(img):
     for row in range(3):
         for col in range(3):
             lx, rx, ly, ry = custom_board_cases[row, col]
-            piece, score = identify_box(img[ly:ry, lx:rx])
+            
+            # AJOUT: Vérifier les limites
+            img_h, img_w = img.shape[:2]
+            if lx < 0 or rx > img_w or ly < 0 or ry > img_h:
+                logger.error(
+                    f'Case ({row},{col}) coordinates out of bounds: '
+                    f'[{lx}:{rx}, {ly}:{ry}] vs image [{img_w}x{img_h}]'
+                )
+                piece, score = 0, 0.0
+            elif (rx - lx) <= 0 or (ry - ly) <= 0:
+                logger.error(
+                    f'Case ({row},{col}) has invalid dimensions: '
+                    f'width={rx-lx}, height={ry-ly}'
+                )
+                piece, score = 0, 0.0
+            else:
+                # AJOUT: Logger les coordonnées de la case
+                logger.debug(
+                    f'Extracting case ({row},{col}): '
+                    f'[{lx}:{rx}, {ly}:{ry}] = {rx-lx}x{ry-ly}px'
+                )
+                box_img = img[ly:ry, lx:rx]
+                piece, score = identify_box(box_img)
             
             # Si le score de confiance est trop bas, considérer comme vide
             if score < 0.9:

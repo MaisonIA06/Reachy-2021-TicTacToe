@@ -103,6 +103,17 @@ def find_board_cases(board_img):
          (O[0], P[0], L[1], P[1]), ),
     ), dtype=np.int32)
 
+    # AJOUT: Vérifier et corriger les coordonnées invalides
+    for row in range(3):
+        for col in range(3):
+            lx, rx, ly, ry = board_cases[row, col]
+            # Corriger si inversé
+            if lx > rx:
+                lx, rx = rx, lx
+            if ly > ry:
+                ly, ry = ry, ly
+            board_cases[row, col] = (lx, rx, ly, ry)
+
     return board_cases
 
 
