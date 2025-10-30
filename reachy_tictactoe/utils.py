@@ -1,7 +1,7 @@
 piece2id = {
-    'cube': 0,
-    'cylinder': 1,
-    'none': 2,
+    'none': 0,
+    'cube': 1,
+    'cylinder': 2,
 }
 
 id2piece = {

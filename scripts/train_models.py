@@ -123,7 +123,7 @@ def train_boxes_model(data_dir='training_data/boxes',
     print("🚀 ENTRAÎNEMENT DU MODÈLE TTT-BOXES")
     print("="*70)
     
-    class_names = ['cube', 'cylinder', 'empty']
+    class_names = ['empty', 'cube', 'cylinder']
     
     # Vérifier les données
     if not check_data_availability(data_dir, class_names):
@@ -150,6 +150,7 @@ def train_boxes_model(data_dir='training_data/boxes',
         class_mode='categorical',
         subset='training',
         shuffle=True
+        class_names=class_names
     )
     
     val_generator = train_datagen.flow_from_directory(
@@ -159,6 +160,7 @@ def train_boxes_model(data_dir='training_data/boxes',
         class_mode='categorical',
         subset='validation',
         shuffle=False
+        class_names=class_names
     )
     
     print(f"✅ Données d'entraînement: {train_generator.samples} images")
