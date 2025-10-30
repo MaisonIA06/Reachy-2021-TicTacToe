@@ -79,7 +79,7 @@ def find_board_corners(board_img):
             y = a1 * x + b1
             corners.append((x, y))
 
-    return np.array(corners, dtype=np.int)
+    return np.array(corners, dtype=np.int32)
 
 
 def find_board_cases(board_img):
@@ -101,7 +101,7 @@ def find_board_cases(board_img):
         ((M[0], N[0], J[1], N[1]),
          (N[0], O[0], K[1], O[1]),
          (O[0], P[0], L[1], P[1]), ),
-    ), dtype=np.int)
+    ), dtype=np.int32)
 
     return board_cases
 
