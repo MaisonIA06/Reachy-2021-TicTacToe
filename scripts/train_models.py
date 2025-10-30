@@ -123,7 +123,7 @@ def train_boxes_model(data_dir='training_data/boxes',
     print("🚀 ENTRAÎNEMENT DU MODÈLE TTT-BOXES")
     print("="*70)
     
-    class_names = ['empty', 'cube', 'cylinder']
+    class_names = ['cube', 'cylinder', 'empty']
     
     # Vérifier les données
     if not check_data_availability(data_dir, class_names):
