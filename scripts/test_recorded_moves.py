@@ -107,24 +107,28 @@ class MoveTester:
         
         return None
     
-    def is_trajectory(self, move_data):
-        """
-        Détermine si le mouvement est une trajectoire ou une position simple
+def is_trajectory(self, move_data):
+    """
+    Détermine si le mouvement est une trajectoire ou une position simple
+    
+    Args:
+        move_data: Données du mouvement
         
-        Args:
-            move_data: Données du mouvement
-            
-        Returns:
-            bool: True si trajectoire, False si position simple
-        """
-        # Vérifier la première valeur
-        first_value = list(move_data.values())[0]
-        
-        # Si c'est un array avec plus d'un élément, c'est une trajectoire
-        if isinstance(first_value, np.ndarray) and len(first_value) > 1:
+    Returns:
+        bool: True si trajectoire, False si position simple
+    """
+    # Vérifier la première valeur
+    first_value = list(move_data.values())[0]
+    
+    # Si c'est un array avec plus d'un élément, c'est une trajectoire
+    if isinstance(first_value, np.ndarray):
+        # Vérifier la forme plutôt que len() pour éviter les erreurs avec les scalaires
+        if first_value.ndim == 0:  # Scalaire numpy
+            return False
+        elif first_value.ndim >= 1 and first_value.shape[0] > 1:
             return True
-        
-        return False
+    
+    return False
     
     def play_position(self, move_data, duration=2.0):
         """
