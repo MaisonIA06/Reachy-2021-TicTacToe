@@ -1,10 +1,83 @@
 # 🛠️ Scripts utilitaires TicTacToe
 
-Ce dossier contient les scripts pour configurer et calibrer le système TicTacToe.
+Ce dossier contient les scripts pour configurer, calibrer et enregistrer les mouvements du système TicTacToe.
 
 ---
 
-## 📝 Liste des scripts
+## 🆕 NOUVEAUX SCRIPTS - Enregistrement des mouvements
+
+### `record_moves.py` 🎬 **Enregistrer les mouvements du robot**
+
+**But :** Enregistrer les positions et trajectoires du bras en mode compliant
+
+**Usage :**
+```bash
+# Mode interactif (RECOMMANDÉ)
+python scripts/record_moves.py --interactive --host localhost
+
+# Enregistrer une position simple
+python scripts/record_moves.py --name grab_1 --type position --host localhost
+
+# Enregistrer une trajectoire
+python scripts/record_moves.py --name put_1 --type trajectory --duration 2.5 --host localhost
+```
+
+**Ce qu'il fait :**
+- ✅ Active le mode compliant sur le bras droit
+- ✅ Enregistre les positions des joints en temps réel
+- ✅ Sauvegarde au format .npz
+- ✅ Supporte positions simples et trajectoires
+
+---
+
+### `test_recorded_moves.py` 🧪 **Tester les mouvements enregistrés**
+
+**But :** Valider que les mouvements enregistrés fonctionnent correctement
+
+**Usage :**
+```bash
+# Mode interactif (RECOMMANDÉ)
+python scripts/test_recorded_moves.py --interactive --host localhost
+
+# Tester un mouvement spécifique
+python scripts/test_recorded_moves.py --name grab_1 --host localhost
+
+# Tester tous les mouvements
+python scripts/test_recorded_moves.py --all --host localhost
+```
+
+**Ce qu'il fait :**
+- ✅ Charge les fichiers .npz
+- ✅ Rejoue les mouvements sur le robot
+- ✅ Affiche la progression
+- ✅ Valide la compatibilité
+
+---
+
+### `record_all_moves.sh` 📋 **Assistant complet d'enregistrement**
+
+**But :** Menu interactif pour enregistrer tous les mouvements étape par étape
+
+**Usage :**
+```bash
+./scripts/record_all_moves.sh
+# Ou avec un robot distant
+./scripts/record_all_moves.sh --host 192.168.1.42
+```
+
+**Ce qu'il fait :**
+- ✅ Menu interactif avec 8 options
+- ✅ Guide pas à pas pour chaque type de mouvement
+- ✅ Session complète automatisée
+- ✅ Vérifications et confirmations
+
+**📚 Documentation complète :**
+- `GUIDE_REENREGISTREMENT_MOUVEMENTS.md` - Guide détaillé complet
+- `AIDE_RAPIDE_MOUVEMENTS.md` - Aide-mémoire et commandes rapides
+
+---
+
+## 📝 Liste des autres scripts
 
 ### 1. `convert_models_for_cpu.py` ⭐ **À exécuter en premier**
 
