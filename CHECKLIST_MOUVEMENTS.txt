@@ -1,0 +1,146 @@
+================================================================================
+    CHECKLIST D'ENREGISTREMENT DES MOUVEMENTS TICTACTOE
+================================================================================
+
+Date : ____ / ____ / ________        Robot : _________________________
+
+
+PRÉPARATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] Robot Reachy allumé et accessible
+[ ] Connexion SSH établie (si à distance)
+[ ] Environnement virtuel activé (source venv/bin/activate)
+[ ] Plateau positionné à la nouvelle place
+[ ] Coordonnées du plateau mises à jour dans config.py
+[ ] 5 pions disponibles et alignés
+[ ] Backup des anciens mouvements créé
+
+
+MOUVEMENTS GRAB (Attraper les pions)                          Temps: ~5 min
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] grab_1.npz    (pion 1 - le plus proche)
+[ ] grab_2.npz    (pion 2)
+[ ] grab_3.npz    (pion 3)
+[ ] grab_4.npz    (pion 4 - plus éloigné)
+[ ] grab_5.npz    (pion 5 - le plus éloigné)
+
+
+MOUVEMENT LIFT (Lever le pion)                                 Temps: ~1 min
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] lift.npz      (position de sécurité, pion levé)
+
+
+TRAJECTOIRES PUT (Placer dans les cases)                      Temps: ~15 min
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Numérotation :    1 | 2 | 3
+                  ---------
+                  4 | 5 | 6
+                  ---------
+                  7 | 8 | 9
+
+[ ] put_1.npz + put_1_smooth_10_kp.npz    (case 1 - haut gauche)
+[ ] put_2.npz + put_2_smooth_10_kp.npz    (case 2 - haut centre)
+[ ] put_3.npz + put_3_smooth_10_kp.npz    (case 3 - haut droite)
+[ ] put_4.npz + put_4_smooth_10_kp.npz    (case 4 - centre gauche)
+[ ] put_5.npz + put_5_smooth_10_kp.npz    (case 5 - centre centre)
+[ ] put_6.npz + put_6_smooth_10_kp.npz    (case 6 - centre droite)
+[ ] put_7.npz + put_7_smooth_10_kp.npz    (case 7 - bas gauche)
+[ ] put_8.npz + put_8_smooth_10_kp.npz    (case 8 - bas centre)
+[ ] put_9.npz + put_9_smooth_10_kp.npz    (case 9 - bas droite)
+
+
+MOUVEMENTS BACK_UPRIGHT (Retour depuis les cases)            Temps: ~10 min
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] back_1_upright.npz    (retour depuis case 1)
+[ ] back_2_upright.npz    (retour depuis case 2)
+[ ] back_3_upright.npz    (retour depuis case 3)
+[ ] back_4_upright.npz    (retour depuis case 4)
+[ ] back_5_upright.npz    (retour depuis case 5)
+[ ] back_6_upright.npz    (retour depuis case 6)
+[ ] back_7_upright.npz    (retour depuis case 7)
+[ ] back_8_upright.npz    (retour depuis case 8)
+[ ] back_9_upright.npz    (retour depuis case 9)
+
+
+MOUVEMENTS DE TRANSITION                                       Temps: ~5 min
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] back_to_back.npz      (position intermédiaire)
+[ ] back_rest.npz         (transition vers repos)
+[ ] shuffle-board.npz     (balayage du plateau) - OPTIONNEL
+
+
+ANIMATIONS                                                     Temps: ~3 min
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] my-turn.npz           (animation "c'est mon tour")
+[ ] your-turn.npz         (animation "c'est votre tour")
+
+
+TESTS                                                         Temps: ~15 min
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] Test de tous les mouvements grab (1-5)
+[ ] Test du mouvement lift
+[ ] Test de toutes les trajectoires put (1-9)
+[ ] Test de tous les mouvements back_upright (1-9)
+[ ] Test des transitions (back_to_back, back_rest, shuffle-board)
+[ ] Test des animations (my-turn, your-turn)
+
+
+VALIDATION FINALE                                              Temps: ~5 min
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] Lancement d'un jeu complet de test
+[ ] Aucune collision détectée
+[ ] Mouvements fluides et naturels
+[ ] Précision des placements correcte
+[ ] Vitesses appropriées
+
+
+TOTAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mouvements enregistrés : ____ / 29 fichiers .npz
+
+Temps total : __________ (estimation : ~1 heure)
+
+Statut final : [ ] COMPLET    [ ] PARTIEL    [ ] À REFAIRE
+
+
+NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Problèmes rencontrés :
+_________________________________________________________________________
+
+_________________________________________________________________________
+
+_________________________________________________________________________
+
+
+Ajustements nécessaires :
+_________________________________________________________________________
+
+_________________________________________________________________________
+
+_________________________________________________________________________
+
+
+Observations :
+_________________________________________________________________________
+
+_________________________________________________________________________
+
+_________________________________________________________________________
+
+
+================================================================================
+                                 FIN
+================================================================================
+

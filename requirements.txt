@@ -1,0 +1,19 @@
+# Requirements pour reachy_tictactoe (Reachy SDK 2021)
+
+# Core dependencies
+numpy>=1.19.0
+zzlog>=1.0.0
+reachy-sdk>=0.7.0
+
+# Vision
+opencv-python>=4.5.0
+Pillow>=8.0.0
+tflite-runtime>=2.5.0
+
+# Math and geometry
+pyquaternion>=0.9.0
+
+# Optional: Development tools
+# pytest>=6.0.0
+# flake8>=3.8.0
+

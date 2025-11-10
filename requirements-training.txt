@@ -1,0 +1,22 @@
+# Dépendances pour l'entraînement des modèles TicTacToe
+
+# Dépendances de base (depuis requirements.txt)
+numpy>=1.19.0
+opencv-python>=4.5.0
+Pillow>=8.0.0
+reachy-sdk>=0.7.0
+
+# TensorFlow pour l'entraînement (CPU)
+tensorflow>=2.10.0,<2.16.0
+
+# Jupyter pour les notebooks (optionnel)
+jupyter>=1.0.0
+notebook>=6.4.0
+matplotlib>=3.3.0
+
+# Outils de visualisation
+seaborn>=0.11.0
+
+# Utilitaires
+tqdm>=4.62.0
+
