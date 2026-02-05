@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 # Ajouter le projet au path
-project_dir = Path(__file__).parent.parent
+project_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_dir))
 
 from reachy_tictactoe import config

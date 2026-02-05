@@ -33,8 +33,8 @@ import numpy as np
 import cv2 as cv
 from pathlib import Path
 
-# Ajouter le projet au path
-project_dir = Path(__file__).parent.parent
+# Ajouter le projet au path (3 niveaux: calibrate_board.py -> calibration -> scripts -> racine)
+project_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_dir))
 
 
@@ -428,8 +428,13 @@ def save_calibration(board_zone=None, boxes=None):
         boxes: Dictionnaire des coordonnées des cases
     """
     try:
-        # Importer le module config
-        from reachy_tictactoe import config
+        # Importer directement config.py sans charger tout le package
+        # (évite les dépendances comme sklearn, tflite, etc.)
+        import importlib.util
+        config_path = project_dir / 'reachy_tictactoe' / 'config.py'
+        spec = importlib.util.spec_from_file_location("config", config_path)
+        config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config)
         
         # Préparer les données
         board_position = None

@@ -23,8 +23,8 @@ import argparse
 import numpy as np
 from pathlib import Path
 
-# Ajouter le projet au path
-project_dir = Path(__file__).parent.parent
+# Ajouter le projet au path (3 niveaux: show_config.py -> utils -> scripts -> racine)
+project_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_dir))
 
 # Importer directement le module config sans passer par __init__.py
