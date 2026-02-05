@@ -197,7 +197,7 @@ def save_calibration(board_position=None, board_cases=None):
     
     # Mettre à jour les cases
     if board_cases is not None:
-        # Générer le code pour board_cases (CORRIGÉ)
+        # Générer le code pour board_cases
         code = "BOARD_CASES = np.array((\n"
         for row in range(3):
             code += "    ("
@@ -210,11 +210,13 @@ def save_calibration(board_position=None, board_cases=None):
             if row < 2:
                 code += ","
             code += f"  # Ligne {row}\n"
-        code += "))"  # CORRECTION : Fermer correctement sans virgule finale
+        code += "))"
         
-        # Remplacer dans le contenu (CORRECTION : pattern plus permissif)
-        pattern = r'BOARD_CASES\s*=\s*np\.array\s*\(\([^\)]*\)[^\)]*\)[^\)]*\)\s*\)'
-        content = re.sub(pattern, code, content, flags=re.DOTALL)
+        # Pattern regex pour matcher BOARD_CASES jusqu'à )) suivi d'un saut de ligne
+        # Utilise [\s\S]*? (non-greedy) pour capturer tout le contenu multi-ligne
+        # Le lookahead (?=\s*\n) assure qu'on s'arrête au bon endroit
+        pattern = r'BOARD_CASES\s*=\s*np\.array\s*\([\s\S]*?\)\)(?=\s*\n)'
+        content = re.sub(pattern, code, content)
     
     # Sauvegarder
     config_file.write_text(content)

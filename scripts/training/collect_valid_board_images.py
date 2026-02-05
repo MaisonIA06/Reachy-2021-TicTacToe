@@ -17,8 +17,12 @@ import os
 from datetime import datetime
 from reachy_sdk import ReachySDK
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ajouter le répertoire racine du projet au path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 from reachy_tictactoe.vision import board_rect
 
 
