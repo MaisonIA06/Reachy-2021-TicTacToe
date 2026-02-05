@@ -7,6 +7,8 @@ import numpy as np
 import cv2 as cv
 import logging
 import os
+import time
+import hashlib
 
 from PIL import Image
 
@@ -169,66 +171,117 @@ board_cases = config.get_board_cases()
 board_rect = np.array(config.get_board_position())
 
 
+# ============================================================================
+# CACHE POUR OPTIMISATION DES PERFORMANCES
+# ============================================================================
+
+# Cache pour la validation du plateau (évite les inférences répétées)
+_valid_cache = {
+    'img_hash': None,
+    'result': None,
+    'timestamp': 0
+}
+
+# Durée de validité du cache en secondes
+CACHE_DURATION = 0.5
+
+
+def _compute_image_hash(img):
+    """
+    Calcule un hash rapide de l'image pour le cache.
+    Utilise seulement un échantillon pour la performance.
+    """
+    # Échantillonner l'image pour un hash rapide (pas besoin de tout hasher)
+    sample = img[::10, ::10].tobytes()[:2000]
+    return hashlib.md5(sample).hexdigest()
+
+
 def get_board_configuration(img):
     """
-    Analyse l'image pour déterminer l'état du plateau
+    Analyse l'image pour déterminer l'état du plateau.
+    Version optimisée avec extraction batch des cases pour meilleure utilisation du cache CPU.
     """
     board = np.zeros((3, 3), dtype=np.uint8)
     
-    # AJOUT: Logger la taille de l'image
     logger.info(f'Image dimensions: {img.shape}')
     
-    # ✅ CORRECTION CRITIQUE : Extraire d'abord la zone du plateau
-    # Les coordonnées dans board_cases sont RELATIVES à cette zone
+    # Extraire la zone du plateau
     lx_board, rx_board, ly_board, ry_board = board_rect
     board_img = img[ly_board:ry_board, lx_board:rx_board]
-    logger.info(f'Board zone extracted: {board_img.shape} from position [{lx_board}:{rx_board}, {ly_board}:{ry_board}]')
+    logger.info(f'Board zone extracted: {board_img.shape}')
     
     custom_board_cases = board_cases
-    logger.debug("using static board coordinates")
-        
+    img_h, img_w = board_img.shape[:2]
+    
     sanity_check = True
     
-    # Analyser chaque case DANS LA ZONE DU PLATEAU
+    # ============================================================================
+    # OPTIMISATION: Extraction batch de toutes les images de cases
+    # ============================================================================
+    # Préparer toutes les images de cases d'abord (meilleur pour le cache CPU)
+    case_images = []
+    case_coords = []  # Pour garder la trace des coordonnées
+    
     for row in range(3):
         for col in range(3):
             lx, rx, ly, ry = custom_board_cases[row, col]
             
-            # AJOUT: Vérifier les limites dans la zone du plateau (pas l'image complète!)
-            img_h, img_w = board_img.shape[:2]  # ← board_img au lieu de img !
+            # Vérifier les limites
             if lx < 0 or rx > img_w or ly < 0 or ry > img_h:
-                logger.error(
-                    f'Case ({row},{col}) coordinates out of bounds: '
-                    f'[{lx}:{rx}, {ly}:{ry}] vs board zone [{img_w}x{img_h}]'
-                )
-                piece, score = 0, 0.0
+                logger.error(f'Case ({row},{col}) out of bounds')
+                case_images.append(None)
             elif (rx - lx) <= 0 or (ry - ly) <= 0:
-                logger.error(
-                    f'Case ({row},{col}) has invalid dimensions: '
-                    f'width={rx-lx}, height={ry-ly}'
-                )
-                piece, score = 0, 0.0
+                logger.error(f'Case ({row},{col}) invalid dimensions')
+                case_images.append(None)
             else:
-                # AJOUT: Logger les coordonnées de la case
-                logger.debug(
-                    f'Extracting case ({row},{col}): '
-                    f'[{lx}:{rx}, {ly}:{ry}] = {rx-lx}x{ry-ly}px'
-                )
-                # ✅ Extraire de board_img (zone du plateau), pas de img (image complète)
                 box_img = board_img[ly:ry, lx:rx]
-                piece, score = identify_box(box_img)
-                
-                # Logger le résultat de la détection
-                logger.info(f'Case ({row},{col}): piece={piece}, score={score:.2f}')
+                case_images.append(box_img)
             
-            # Si le score de confiance est trop bas, considérer comme vide
-            if score < 0.75:  # ← Réduit de 0.9 à 0.75 pour être moins strict
-                logger.debug(f'Case ({row},{col}): score too low ({score:.2f} < 0.75), marking as empty')
-                piece = 0
-                
-            # Inverser le plateau pour le présenter du point de vue de l'humain
-            board[2 - row, 2 - col] = piece
-            
+            case_coords.append((row, col))
+    
+    # ============================================================================
+    # OPTIMISATION: Inférence batch (toutes les classifications en séquence serrée)
+    # ============================================================================
+    # Convertir toutes les images en PIL d'abord
+    pil_images = []
+    for box_img in case_images:
+        if box_img is not None:
+            pil_images.append(img_as_pil(box_img))
+        else:
+            pil_images.append(None)
+    
+    # Exécuter toutes les inférences (plus efficace pour le cache CPU en séquence)
+    results = []
+    for pil_img in pil_images:
+        if pil_img is not None:
+            try:
+                res = boxes_classifier.classify_with_image(pil_img, top_k=1)
+                if res:
+                    results.append(res[0])  # (label_id, score)
+                else:
+                    results.append((0, 0.0))
+            except Exception as e:
+                logger.error(f'Classification failed: {e}')
+                results.append((0, 0.0))
+        else:
+            results.append((0, 0.0))
+    
+    # ============================================================================
+    # Reconstruire le plateau à partir des résultats
+    # ============================================================================
+    for idx, (piece, score) in enumerate(results):
+        row, col = case_coords[idx]
+        
+        # Si le score de confiance est trop bas, considérer comme vide
+        if score < 0.75:
+            logger.debug(f'Case ({row},{col}): score too low ({score:.2f}), marking as empty')
+            piece = 0
+        else:
+            logger.debug(f'Case ({row},{col}): piece={piece}, score={score:.2f}')
+        
+        # Inverser le plateau pour le présenter du point de vue de l'humain
+        board[2 - row, 2 - col] = piece
+    
     logger.info(f'Board state detected: {board}')
     return board, sanity_check
 
@@ -264,17 +317,33 @@ def identify_box(box_img):
         return 0, 0.0
 
 
-def is_board_valid(img):
+def is_board_valid(img, use_cache=True):
     """
-    Vérifie si un plateau valide est présent dans l'image
+    Vérifie si un plateau valide est présent dans l'image.
+    Utilise un cache pour éviter les inférences répétées sur la même image.
     
     Args:
         img: Image numpy array (BGR)
+        use_cache: Si True, utilise le cache (défaut: True)
         
     Returns:
         bool: True si un plateau valide est détecté
     """
+    global _valid_cache
+    
     try:
+        current_time = time.time()
+        
+        # Vérifier le cache si activé
+        if use_cache:
+            img_hash = _compute_image_hash(img)
+            
+            # Si même image et cache encore valide, retourner le résultat caché
+            if (_valid_cache['img_hash'] == img_hash and 
+                current_time - _valid_cache['timestamp'] < CACHE_DURATION):
+                logger.debug('Board validity check: using cached result')
+                return _valid_cache['result']
+        
         # Extraire la zone du plateau
         lx, rx, ly, ry = board_rect
         board_img = img[ly:ry, lx:rx]
@@ -286,17 +355,25 @@ def is_board_valid(img):
         res = valid_classifier.classify_with_image(pil_img, top_k=1)
         
         if not res:
-            return False
+            result = False
+        else:
+            label_id, score = res[0]
+            label = valid_classifier.labels[label_id] if label_id < len(valid_classifier.labels) else 'unknown'
             
-        label_id, score = res[0]
-        label = valid_classifier.labels[label_id] if label_id < len(valid_classifier.labels) else 'unknown'
+            logger.info('Board validity check', extra={
+                'label': label,
+                'score': score,
+            })
+            
+            result = label_id == 1 and score > 0.65
         
-        logger.info('Board validity check', extra={
-            'label': label,
-            'score': score,
-        })
+        # Mettre à jour le cache
+        if use_cache:
+            _valid_cache['img_hash'] = img_hash
+            _valid_cache['result'] = result
+            _valid_cache['timestamp'] = current_time
         
-        return label_id == 1 and score > 0.65
+        return result
         
     except Exception as e:
         logger.error(f'Board validation failed: {e}')

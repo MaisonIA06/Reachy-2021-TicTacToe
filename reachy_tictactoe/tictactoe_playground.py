@@ -26,6 +26,9 @@ logger = logging.getLogger('reachy.tictactoe')
 class TictactoePlayground(object):
     """Classe principale pour gérer le jeu de TicTacToe avec Reachy"""
     
+    # Flag pour le préchargement (classe-level pour éviter rechargement)
+    _resources_preloaded = False
+    
     def __init__(self, host='localhost'):
         """
         Initialise la connexion avec Reachy
@@ -40,6 +43,8 @@ class TictactoePlayground(object):
         self.pawn_played = 0
         # Track des sons utilisés pendant la partie
         self.used_thinking_sounds = set()
+        # Thread de préchargement
+        self._preload_thread = None
     
     def display_board(self, board, current_player=None, winner=None):
         """
@@ -148,6 +153,11 @@ class TictactoePlayground(object):
         """Configure le robot pour le jeu"""
         logger.info('Setup the playground')
         
+        # Démarrer le préchargement des ressources en arrière-plan
+        if not TictactoePlayground._resources_preloaded:
+            self._preload_thread = Thread(target=self._preload_resources, daemon=True)
+            self._preload_thread.start()
+        
         # Activer les moteurs des antennes
         self.reachy.turn_on('head')
         
@@ -162,6 +172,55 @@ class TictactoePlayground(object):
         )
         
         self.goto_rest_position()
+        
+        # Attendre la fin du préchargement si nécessaire
+        if self._preload_thread is not None:
+            self._preload_thread.join(timeout=5)
+            logger.info('Resources preloading completed')
+    
+    def _preload_resources(self):
+        """
+        Précharge les ressources en arrière-plan pour améliorer les performances.
+        - Force le chargement de tous les mouvements en mémoire
+        - Fait un warmup des modèles TFLite (première inférence plus lente)
+        """
+        try:
+            logger.info('Starting resources preloading...')
+            start_time = time.time()
+            
+            # 1. Forcer le chargement de tous les mouvements en mémoire
+            from .moves import moves as all_moves
+            for name, move_data in all_moves.items():
+                # Accéder aux données force leur chargement depuis le fichier npz
+                if hasattr(move_data, 'files'):
+                    _ = list(move_data.files)
+            logger.info(f'Preloaded {len(all_moves)} movement files')
+            
+            # 2. Warmup TFLite (la première inférence est toujours plus lente)
+            try:
+                from .vision import boxes_classifier, valid_classifier
+                from PIL import Image
+                
+                # Créer une image dummy pour le warmup
+                dummy_img = Image.new('RGB', (224, 224), color=(128, 128, 128))
+                
+                # Warmup du classificateur de cases
+                boxes_classifier.classify_with_image(dummy_img, top_k=1)
+                logger.info('TFLite boxes classifier warmed up')
+                
+                # Warmup du classificateur de plateau valide
+                valid_classifier.classify_with_image(dummy_img, top_k=1)
+                logger.info('TFLite valid classifier warmed up')
+                
+            except Exception as e:
+                logger.warning(f'TFLite warmup failed (non-critical): {e}')
+            
+            elapsed = time.time() - start_time
+            logger.info(f'Resources preloading completed in {elapsed:.2f}s')
+            TictactoePlayground._resources_preloaded = True
+            
+        except Exception as e:
+            logger.error(f'Resources preloading failed: {e}')
         
     def __enter__(self):
         return self
@@ -207,7 +266,7 @@ class TictactoePlayground(object):
     def run_random_idle_behavior(self):
         """Comportement d'attente aléatoire"""
         logger.info('Reachy is playing a random idle behavior')
-        time.sleep(2)
+        time.sleep(0.5)  # Optimisé: réduit de 2s à 0.5s pour fluidité
     
     def run_thinking_behavior(self):
         """Comportement de réflexion"""
@@ -245,12 +304,12 @@ class TictactoePlayground(object):
         """Analyse l'état actuel du plateau de jeu"""
         # Activer les moteurs du cou
         self.reachy.turn_on('head')
-        time.sleep(0.1)
+        time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s
         
         # Regarder vers le plateau (position calibrée dans Check_boxes.ipynb)
         # z=-0.6 pour voir le plateau complet
         self.reachy.head.look_at(x=0.5, y=0, z=-0.6, duration=1.0)
-        time.sleep(0.2)
+        time.sleep(0.1)  # Optimisé: réduit de 0.2s à 0.1s
         
         # Attendre une image de la caméra
         self.wait_for_img()
@@ -463,15 +522,15 @@ class TictactoePlayground(object):
         self.reachy.turn_on('r_arm')
         
         # CRITIQUE: Forcer l'activation du gripper
-        time.sleep(0.3)
+        time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
         self.reachy.r_arm.r_gripper.compliant = False
-        time.sleep(0.2)
+        time.sleep(0.1)  # Optimisé: réduit de 0.2s à 0.1s
         
         # Vérifier que le gripper est bien activé
         if self.reachy.r_arm.r_gripper.compliant:
             logger.error("❌ GRIPPER TOUJOURS EN MODE COMPLIANT!")
             self.reachy.r_arm.r_gripper.compliant = False
-            time.sleep(0.5)
+            time.sleep(0.2)  # Optimisé: réduit de 0.5s à 0.2s
         
         logger.info(f"Gripper state: compliant={self.reachy.r_arm.r_gripper.compliant}, "
                     f"position={self.reachy.r_arm.r_gripper.present_position:.1f}°")
@@ -502,7 +561,7 @@ class TictactoePlayground(object):
         )
         
         # Attendre stabilisation
-        time.sleep(0.3)
+        time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
         
         # Augmenter le couple du gripper pour une meilleure prise
         self.reachy.r_arm.r_gripper.torque_limit = 100
@@ -512,7 +571,7 @@ class TictactoePlayground(object):
         
         # Première fermeture
         self.reachy.r_arm.r_gripper.goal_position = GRIPPER_CLOSED
-        time.sleep(0.8)
+        time.sleep(0.5)  # Optimisé: réduit de 0.8s à 0.5s
         
         # Fermeture complète avec la fonction
         self.close_gripper()
@@ -525,7 +584,7 @@ class TictactoePlayground(object):
         if actual_pos < -12:
             logger.warning(f'Gripper not closed enough ({actual_pos:.1f}°), forcing closure...')
             self.reachy.r_arm.r_gripper.goal_position = GRIPPER_CLOSED
-            time.sleep(1.0)
+            time.sleep(0.5)  # Optimisé: réduit de 1.0s à 0.5s
             actual_pos = self.reachy.r_arm.r_gripper.present_position
             logger.info(f'Gripper forced to: {actual_pos:.1f}°')
     
@@ -552,7 +611,7 @@ class TictactoePlayground(object):
             )
         
         # Pause supplémentaire avant de lever (maintenir la pression)
-        time.sleep(0.2)
+        time.sleep(0.1)  # Optimisé: réduit de 0.2s à 0.1s
         
         # Lever le pion (CRITIQUE: Ne pas rouvrir le gripper!)
         self.goto_position(
@@ -561,7 +620,7 @@ class TictactoePlayground(object):
             filter_gripper=True,  # Ne pas toucher au gripper
         )
         
-        time.sleep(0.1)
+        # Pause après lever supprimée - non nécessaire
         
         # Placer le pion
         put = moves[f'put_{box_index}_smooth_10_kp']
@@ -810,44 +869,44 @@ class TictactoePlayground(object):
     def goto_base_position(self, duration=2.0):
         """Va à la position de base"""
         self.reachy.turn_on('r_arm')
-        time.sleep(0.1)
+        time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s
         
         self.goto_position(base_pos, duration)
         
     def goto_rest_position(self, duration=2.0):
         """Va à la position de repos"""
-        time.sleep(0.1)
+        # Pause initiale supprimée - non nécessaire
         
         self.goto_base_position(0.6 * duration)
-        time.sleep(0.1)
+        # Pause intermédiaire supprimée - goto_position attend déjà la fin
         
         self.goto_position(rest_pos, 0.4 * duration)
-        time.sleep(0.1)
+        time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s pour stabilisation finale
         
         # Réduire le couple de certains moteurs
         # Note: Dans le SDK 2021, il faut utiliser compliant mode
-        time.sleep(0.25)
+        # Pause finale supprimée - non nécessaire
         
     def close_gripper(self):
         """Ferme la pince"""
         # S'assurer que le gripper est activé
         self.reachy.r_arm.r_gripper.compliant = False
         self.reachy.r_arm.r_gripper.torque_limit = 100
-        time.sleep(0.1)
+        time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s
 
         logger.info(f"Closing gripper from {self.reachy.r_arm.r_gripper.present_position:.1f}°")
 
         # Fermer pour tenir les cylindres
         goto(
             goal_positions={self.reachy.r_arm.r_gripper: GRIPPER_CLOSED},
-            duration=0.8,
+            duration=0.5,  # Optimisé: réduit de 0.8s à 0.5s
             interpolation_mode=InterpolationMode.LINEAR,
         )
-        time.sleep(0.8)
+        time.sleep(0.5)  # Optimisé: réduit de 0.8s à 0.5s
 
         # Forcer la position
         self.reachy.r_arm.r_gripper.goal_position = GRIPPER_CLOSED
-        time.sleep(0.3)
+        time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
 
         logger.info(f"Gripper closed to {self.reachy.r_arm.r_gripper.present_position:.1f}°")
         
@@ -857,10 +916,10 @@ class TictactoePlayground(object):
         
         goto(
             goal_positions={self.reachy.r_arm.r_gripper: GRIPPER_OPEN},
-            duration=0.5,
+            duration=0.3,  # Optimisé: réduit de 0.5s à 0.3s
             interpolation_mode=InterpolationMode.LINEAR,
         )
-        time.sleep(0.5)
+        time.sleep(0.3)  # Optimisé: réduit de 0.5s à 0.3s
         
         logger.info(f"Gripper opened to {self.reachy.r_arm.r_gripper.present_position:.1f}°")
         
@@ -880,7 +939,7 @@ class TictactoePlayground(object):
             except Exception as e:
                 logger.debug(f'Camera read attempt failed: {e}')
                 pass
-            time.sleep(0.1)
+            time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s pour réactivité
             
         # MODE TEST: Ne pas rebooter, juste logger l'erreur
         logger.warning(f'No image received after {timeout} sec. Camera may not be configured.')

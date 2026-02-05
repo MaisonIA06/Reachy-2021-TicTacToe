@@ -1,7 +1,9 @@
 """
 Lanceur de jeu TicTacToe adapté pour Reachy SDK 2021
+Optimisé pour de meilleures performances avec boucle adaptative
 """
 import logging
+import time
 import numpy as np
 
 import zzlog
@@ -11,9 +13,22 @@ from . import TictactoePlayground
 logger = logging.getLogger('reachy.tictactoe')
 
 
+# ============================================================================
+# CONSTANTES D'OPTIMISATION
+# ============================================================================
+
+# Fréquence d'analyse adaptative
+MIN_ANALYSIS_INTERVAL = 0.1   # Intervalle minimum entre analyses (100ms)
+MAX_ANALYSIS_INTERVAL = 0.5   # Intervalle maximum quand plateau stable (500ms)
+STABLE_THRESHOLD = 3          # Nombre d'analyses identiques avant de ralentir
+
+
 def run_game_loop(tictactoe_playground):
     """
-    Boucle principale du jeu
+    Boucle principale du jeu avec fréquence d'analyse adaptative.
+    
+    Optimisation: Réduit la fréquence d'analyse quand le plateau est stable
+    pour économiser les ressources CPU tout en restant réactif aux changements.
     
     Args:
         tictactoe_playground: Instance de TictactoePlayground
@@ -22,6 +37,11 @@ def run_game_loop(tictactoe_playground):
         str: Le gagnant ('robot', 'human', ou 'nobody')
     """
     logger.info('Game start')
+
+    # Variables pour l'analyse adaptative
+    last_analyzed_board = None
+    unchanged_count = 0
+    last_analysis_time = 0
 
     # Attendre que le plateau soit nettoyé et prêt
     while True:
@@ -54,26 +74,60 @@ def run_game_loop(tictactoe_playground):
         tictactoe_playground.run_your_turn()
         current_player = 'human'
 
-    # Boucle de jeu principale
+    # Réinitialiser les variables adaptatives
+    last_analyzed_board = last_board.copy()
+    unchanged_count = 0
+
+    # Boucle de jeu principale avec analyse adaptative
     while True:
+        current_time = time.time()
+        
+        # ====================================================================
+        # OPTIMISATION: Fréquence d'analyse adaptative
+        # ====================================================================
+        # Calculer l'intervalle dynamique basé sur la stabilité du plateau
+        if unchanged_count >= STABLE_THRESHOLD:
+            # Plateau stable - réduire la fréquence d'analyse
+            analysis_interval = MAX_ANALYSIS_INTERVAL
+        else:
+            # Plateau en changement - analyser plus fréquemment
+            analysis_interval = MIN_ANALYSIS_INTERVAL
+        
+        # Respecter l'intervalle minimum entre analyses
+        time_since_last = current_time - last_analysis_time
+        if time_since_last < analysis_interval:
+            time.sleep(analysis_interval - time_since_last)
+        
+        # Analyser le plateau
         board = tictactoe_playground.analyze_board()
+        last_analysis_time = time.time()
 
         # Plateau invalide détecté
         if board is None:
             logger.warning('Invalid board detected')
+            unchanged_count = 0  # Réinitialiser car état incertain
             continue
+
+        # Vérifier si le plateau a changé (pour l'adaptation)
+        if last_analyzed_board is not None and np.array_equal(board, last_analyzed_board):
+            unchanged_count += 1
+        else:
+            unchanged_count = 0
+            last_analyzed_board = board.copy()
 
         # Tour de l'humain - attendre qu'il joue
         if not reachy_turn:
             if tictactoe_playground.has_human_played(board, last_board):
                 reachy_turn = True
                 current_player = 'robot'
+                unchanged_count = 0  # Réinitialiser - action détectée
                 logger.info('Next turn', extra={
                     'next_player': 'Reachy',
                 })
             else:
                 # Afficher le plateau avec le tour de l'humain
                 tictactoe_playground.display_board(board, current_player='human')
+                # Note: run_random_idle_behavior déjà optimisé (0.5s au lieu de 2s)
                 tictactoe_playground.run_random_idle_behavior()
 
         # Détection de triche ou incohérence
@@ -98,6 +152,8 @@ def run_game_loop(tictactoe_playground):
             board = tictactoe_playground.play(action, board)
 
             last_board = board
+            last_analyzed_board = board.copy()
+            unchanged_count = 0  # Réinitialiser après action
             reachy_turn = False
             current_player = 'human'
             logger.info('Next turn', extra={
@@ -221,5 +277,5 @@ if __name__ == '__main__':
         # Fermer la fenêtre d'affichage si elle est ouverte
         try:
             tictactoe_playground.close_display()
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f'Could not close display: {e}')
