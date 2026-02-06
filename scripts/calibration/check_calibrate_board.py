@@ -7,12 +7,17 @@ import cv2 as cv
 import numpy as np
 import sys
 from pathlib import Path
+import importlib.util
 
 # Ajouter le projet au path
 project_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_dir))
 
-from reachy_tictactoe import config
+# Importer directement config.py sans charger tout le package
+config_path = project_dir / 'reachy_tictactoe' / 'config.py'
+spec = importlib.util.spec_from_file_location("config", config_path)
+config = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(config)
 
 # Charger l'image capturée
 img = cv.imread('/tmp/snap.3.jpg')

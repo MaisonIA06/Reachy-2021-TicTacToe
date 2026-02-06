@@ -32,10 +32,18 @@ import argparse
 import numpy as np
 import cv2 as cv
 from pathlib import Path
+import importlib.util
 
 # Ajouter le projet au path (3 niveaux: calibrate_board.py -> calibration -> scripts -> racine)
 project_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_dir))
+
+# Charger config.py directement sans charger tout le package
+# (évite les dépendances sklearn, tflite, etc.)
+_config_path = project_dir / 'reachy_tictactoe' / 'config.py'
+_spec = importlib.util.spec_from_file_location("config", _config_path)
+config = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(config)
 
 
 def capture_image_from_reachy(host='localhost'):
@@ -428,14 +436,6 @@ def save_calibration(board_zone=None, boxes=None):
         boxes: Dictionnaire des coordonnées des cases
     """
     try:
-        # Importer directement config.py sans charger tout le package
-        # (évite les dépendances comme sklearn, tflite, etc.)
-        import importlib.util
-        config_path = project_dir / 'reachy_tictactoe' / 'config.py'
-        spec = importlib.util.spec_from_file_location("config", config_path)
-        config = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(config)
-        
         # Préparer les données
         board_position = None
         board_cases = None
@@ -565,7 +565,6 @@ def main():
     else:
         # Utiliser la zone actuelle du config
         try:
-            from reachy_tictactoe import config
             left, right, top, bottom = config.get_board_position()
             board_zone = (left, right, top, bottom)
             board_image = image[top:bottom, left:right]

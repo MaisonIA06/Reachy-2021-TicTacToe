@@ -18,12 +18,21 @@ from datetime import datetime
 from reachy_sdk import ReachySDK
 import sys
 from pathlib import Path
+import importlib.util
 
 # Ajouter le répertoire racine du projet au path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from reachy_tictactoe.vision import board_rect
+# Importer directement config.py sans charger tout le package
+# (évite les dépendances sklearn, tflite, etc.)
+config_path = project_root / 'reachy_tictactoe' / 'config.py'
+spec = importlib.util.spec_from_file_location("config", config_path)
+config = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(config)
+
+# Récupérer board_rect depuis config
+board_rect = config.get_board_position()
 
 
 def warm_up_head(reachy, cycles=10):
