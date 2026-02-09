@@ -66,7 +66,7 @@ def capture_and_extract(reachy, board_cases, save_dir, class_label, case_mask):
     
     Args:
         reachy: Instance ReachySDK
-        board_cases: Array numpy 3x3 des coordonnées des cases
+        board_cases: Array numpy 3x3 des coordonnées des cases (RELATIVES à la zone du plateau)
         save_dir: Dossier de sauvegarde
         class_label: Label de la classe ('empty', 'cube', 'cylinder')
         case_mask: Array numpy 3x3 de booléens (True = sauvegarder cette case)
@@ -85,7 +85,7 @@ def capture_and_extract(reachy, board_cases, save_dir, class_label, case_mask):
     )
     time.sleep(1.0)
     
-    # Capturer
+    # Capturer l'image complète
     img = reachy.right_camera.last_frame
     
     if img is None:
@@ -94,6 +94,11 @@ def capture_and_extract(reachy, board_cases, save_dir, class_label, case_mask):
     
     # Revenir en position repos
     reachy.head.look_at(x=look_at['x'], y=look_at['y'], z=0, duration=1.0)
+    
+    # ⚠️ IMPORTANT: Extraire d'abord la zone du plateau!
+    # Les coordonnées des cases (board_cases) sont RELATIVES à cette zone
+    lx, rx, ty, by = config.get_board_position()
+    board_img = img[ty:by, lx:rx]
     
     # Extraire et sauvegarder les cases
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -104,8 +109,10 @@ def capture_and_extract(reachy, board_cases, save_dir, class_label, case_mask):
             if not case_mask[row, col]:
                 continue
             
+            # Coordonnées RELATIVES à la zone du plateau
             xl, xr, yt, yb = board_cases[row, col]
-            case_img = img[yt:yb, xl:xr]
+            # Appliquer sur l'image de la zone du plateau (pas l'image complète!)
+            case_img = board_img[yt:yb, xl:xr]
             
             filename = f"{class_label}_{timestamp}_r{row}c{col}.jpg"
             filepath = os.path.join(save_dir, filename)
