@@ -16,29 +16,46 @@ import cv2
 import numpy as np
 import time
 import os
+import sys
 from datetime import datetime
+from pathlib import Path
+import importlib.util
+
+# Ajouter le répertoire racine du projet au path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+# Importer directement config.py sans charger tout le package
+# (évite les dépendances sklearn, tflite, etc.)
+config_path = project_root / 'reachy_tictactoe' / 'config.py'
+spec = importlib.util.spec_from_file_location("config", config_path)
+config = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(config)
+
+# Import ReachySDK après config (pour éviter erreur si pas installé en dev)
 from reachy_sdk import ReachySDK
 
 
-# Coordonnées par défaut - À REMPLACER après calibration !
-DEFAULT_BOARD_CASES = np.array((
-    ((145, 212, 340, 417), (217, 290, 343, 421), (297, 370, 350, 423)),
-    ((135, 205, 418, 485), (213, 289, 419, 490), (296, 370, 423, 497)),
-    ((125, 195, 483, 567), (206, 289, 496, 574), (299, 369, 501, 579)),
-))
+def get_look_at_board():
+    """Retourne les paramètres look_at pour voir le plateau depuis config"""
+    return config.CAMERA_CONFIG['look_at_board']
 
 
 def warm_up_head(reachy, cycles=10):
     """Échauffe les moteurs de la tête"""
     print(f"🔥 Échauffement des moteurs ({cycles} cycles)...")
+    look_at = get_look_at_board()
+    
     for i in range(cycles):
-        reachy.head.look_at(x=0.5, y=0, z=-0.4, duration=1.0)
+        # Mouvement vers le bas (z=-0.4, pas aussi bas que le plateau)
+        reachy.head.look_at(x=look_at['x'], y=look_at['y'], z=-0.4, duration=1.0)
         time.sleep(0.5)
-        reachy.head.look_at(x=0.5, y=0, z=0, duration=1.0)
+        # Mouvement vers l'avant (z=0)
+        reachy.head.look_at(x=look_at['x'], y=look_at['y'], z=0, duration=1.0)
         time.sleep(0.5)
         print(f"  Cycle {i+1}/{cycles}", end='\r')
     
-    reachy.head.look_at(x=0.5, y=0, z=0, duration=1.5)
+    reachy.head.look_at(x=look_at['x'], y=look_at['y'], z=0, duration=1.5)
     time.sleep(1.5)
     print("\n✅ Échauffement terminé")
 
@@ -57,8 +74,15 @@ def capture_and_extract(reachy, board_cases, save_dir, class_label, case_mask):
     Returns:
         Nombre d'images sauvegardées
     """
-    # Regarder le plateau
-    reachy.head.look_at(x=0.5, y=0, z=-0.6, duration=1.0)
+    look_at = get_look_at_board()
+    
+    # Regarder le plateau (utilise la config centralisée)
+    reachy.head.look_at(
+        x=look_at['x'], 
+        y=look_at['y'], 
+        z=look_at['z'], 
+        duration=look_at['duration']
+    )
     time.sleep(1.0)
     
     # Capturer
@@ -69,7 +93,7 @@ def capture_and_extract(reachy, board_cases, save_dir, class_label, case_mask):
         return 0
     
     # Revenir en position repos
-    reachy.head.look_at(x=0.5, y=0, z=0, duration=1.0)
+    reachy.head.look_at(x=look_at['x'], y=look_at['y'], z=0, duration=1.0)
     
     # Extraire et sauvegarder les cases
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -201,16 +225,18 @@ def main():
                        help='Classe à collecter')
     parser.add_argument('--target', type=int, default=50,
                        help='Nombre de captures cibles (défaut: 50)')
-    parser.add_argument('--board-coords', type=str,
-                       help='Fichier Python contenant board_cases (optionnel)')
     
     args = parser.parse_args()
     
-    # Charger les coordonnées du plateau
-    board_cases = DEFAULT_BOARD_CASES
-    if args.board_coords:
-        # TODO: Charger depuis fichier
-        print(f"⚠️ Chargement depuis fichier non implémenté, utilisation des coordonnées par défaut")
+    # Charger les coordonnées du plateau depuis la config centralisée
+    board_cases = config.get_board_cases()
+    board_position = config.get_board_position()
+    
+    print(f"📐 Configuration chargée depuis config.py:")
+    print(f"   Position plateau: {board_position}")
+    print(f"   Position tête: x={config.CAMERA_CONFIG['look_at_board']['x']}, "
+          f"y={config.CAMERA_CONFIG['look_at_board']['y']}, "
+          f"z={config.CAMERA_CONFIG['look_at_board']['z']}")
     
     # Définir le dossier de sauvegarde
     save_dir = f'training_data/boxes/{args.class_label}'
@@ -262,8 +288,9 @@ def main():
         
     finally:
         # Désactivation
+        look_at = get_look_at_board()
         print("\n🔄 Retour en position repos...")
-        reachy.head.look_at(x=0.5, y=0, z=0, duration=1.5)
+        reachy.head.look_at(x=look_at['x'], y=look_at['y'], z=0, duration=1.5)
         time.sleep(1.5)
         reachy.turn_off('head')
         print("✅ Reachy désactivé")
@@ -271,4 +298,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
