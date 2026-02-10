@@ -295,7 +295,7 @@ def identify_box(box_img):
         
     Returns:
         tuple: (label, score)
-            - label: ID du type de pièce (0=vide, 1=cube, 2=cylindre)
+            - label: ID du type de pièce (0=vide, 1=cube/robot, 2=cylindre/humain)
             - score: Score de confiance (0-1)
     """
     try:

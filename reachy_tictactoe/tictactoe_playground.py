@@ -85,7 +85,7 @@ class TictactoePlayground(object):
                 center_x = x + cell_size // 2
                 center_y = y + cell_size // 2
                 
-                if piece_id == piece2id['cube']:  # Humain (X)
+                if piece_id == piece2id['cube']:  # Robot (X)
                     # Dessiner un X rouge
                     thickness = 5
                     cv.line(img, 
@@ -100,7 +100,7 @@ class TictactoePlayground(object):
                     cv.putText(img, 'X', (center_x - 15, center_y + 10),
                               cv.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
                     
-                elif piece_id == piece2id['cylinder']:  # Robot (O)
+                elif piece_id == piece2id['cylinder']:  # Humain (O)
                     # Dessiner un cercle bleu
                     radius = cell_size // 2 - 20
                     cv.circle(img, (center_x, center_y), radius, (255, 0, 0), 5)
@@ -375,13 +375,14 @@ class TictactoePlayground(object):
             
         # Un seul cube a été ajouté
         if len(np.where(delta == piece2id['cube'])[0]) == 1:
+            # Si l'humain a ajouté un cube, c'est de la triche (cube=robot)
+            if not reachy_turn:
+                return True
             return False
             
         # Un seul cylindre a été ajouté
         if len(np.where(delta == piece2id['cylinder'])[0]) == 1:
-            # Si l'humain a ajouté un cylindre, c'est de la triche
-            if not reachy_turn:
-                return True
+            # Cylindre ajouté : normal pour l'humain (cylinder=human)
             return False
             
         logger.warning('Cheating detected', extra={
@@ -464,7 +465,7 @@ class TictactoePlayground(object):
                 if a != 8:
                     break
                     
-        elif np.sum(board) == piece2id['cube']:
+        elif np.sum(board) == piece2id['cylinder']:  # Humain a joué en premier (cylinder=human)
             a, _ = actions[0]
             if a == 8:
                 i = 1
@@ -496,7 +497,7 @@ class TictactoePlayground(object):
         )
         
         self.pawn_played += 1
-        board[action] = piece2id['cylinder']
+        board[action] = piece2id['cube']  # Reachy joue des cubes
         
         logger.info(
             'Reachy playing pawn',
@@ -668,11 +669,11 @@ class TictactoePlayground(object):
             
     def has_human_played(self, current_board, last_board):
         """Vérifie si l'humain a joué"""
-        cube = piece2id['cube']
+        cylinder = piece2id['cylinder']  # Humain joue des cylindres
         
         return (
             np.any(current_board != last_board) and
-            np.sum(current_board == cube) > np.sum(last_board == cube)
+            np.sum(current_board == cylinder) > np.sum(last_board == cylinder)
         )
         
     def get_winner(self, board):

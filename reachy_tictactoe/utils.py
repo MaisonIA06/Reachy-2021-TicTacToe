@@ -9,7 +9,7 @@ id2piece = {
 }
 
 piece2player = {
-    'cube': 'human',
-    'cylinder': 'robot',
+    'cube': 'robot',
+    'cylinder': 'human',
     'none': 'nobody',
 }

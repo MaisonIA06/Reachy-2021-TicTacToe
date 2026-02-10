@@ -47,7 +47,7 @@ Ce projet transforme votre robot Reachy en adversaire de morpion intelligent. Le
   - Tête avec caméra opérationnelle
   - NUC ou ordinateur embarqué
 - **Plateau de jeu** : Plateau de TicTacToe avec 9 cases
-- **Pièces** : 5 cubes (joueur humain) + 5 cylindres (robot)
+- **Pièces** : 5 cylindres (joueur humain) + 5 cubes (robot)
 
 ### Logiciel requis
 
@@ -221,8 +221,8 @@ python scripts/utils/show_config.py
 1. **Tirage au sort** : Un tirage au sort détermine qui commence
 2. **Alternance** : Le robot et l'humain jouent alternativement
 3. **Pièces** :
-   - 👤 **Humain** : Joue avec les **cubes** ⬜
-   - 🤖 **Reachy** : Joue avec les **cylindres** 🔵
+   - 👤 **Humain** : Joue avec les **cylindres** 🔵
+   - 🤖 **Reachy** : Joue avec les **cubes** ⬜
 4. **Victoire** : Le premier à aligner 3 pièces (horizontalement, verticalement ou en diagonale) gagne !
 5. **Match nul** : Si toutes les cases sont remplies sans gagnant
 

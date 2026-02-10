@@ -15,8 +15,8 @@ Vous allez créer **2 modèles** :
 ### Matériel
 - ✅ Robot Reachy V1 avec caméra
 - ✅ Plateau de TicTacToe
-- ✅ 5 cubes (pièces joueur)
-- ✅ 5 cylindres (pièces Reachy)
+- ✅ 5 cubes (pièces Reachy)
+- ✅ 5 cylindres (pièces joueur)
 - ✅ Éclairage stable
 
 ### Logiciels
