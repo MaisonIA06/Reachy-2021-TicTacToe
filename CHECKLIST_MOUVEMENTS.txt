@@ -108,7 +108,7 @@ TOTAL
 
 Mouvements enregistrés : ____ / 29 fichiers .npz
 
-Temps total : __________ (estimation : ~1 heure)
+Temps total : _________ (estimation : ~1 heure)
 
 Statut final : [ ] COMPLET    [ ] PARTIEL    [ ] À REFAIRE
 
