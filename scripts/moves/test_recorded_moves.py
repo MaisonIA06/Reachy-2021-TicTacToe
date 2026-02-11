@@ -11,6 +11,9 @@ Usage:
     
     # Mode interactif
     python scripts/moves/test_recorded_moves.py --interactive --host localhost
+    
+    # Séquence grab_1 → case 1 → grab_1 → case 2 → ... → case 9
+    python scripts/moves/test_recorded_moves.py --sequence --host localhost
 """
 
 import argparse
@@ -199,6 +202,32 @@ class MoveTester:
             traceback.print_exc()
             return False
     
+    def _play_move_silent(self, name, moves_dir, fallback_name=None):
+        """
+        Charge et joue un mouvement sans demander de confirmation.
+        Utilisé pour les séquences automatiques.
+
+        Args:
+            name: Nom du mouvement (sans extension)
+            moves_dir: Dossier contenant les mouvements
+            fallback_name: Nom alternatif si name n'existe pas (ex: put_1 si put_1_smooth_10_kp absent)
+
+        Returns:
+            bool: True si succès
+        """
+        filepath = os.path.join(moves_dir, f'{name}.npz')
+        if not os.path.exists(filepath) and fallback_name:
+            filepath = os.path.join(moves_dir, f'{fallback_name}.npz')
+        if not os.path.exists(filepath):
+            return False
+        move_data = self.load_move(filepath)
+        if move_data is None:
+            return False
+        is_traj = self.is_trajectory(move_data)
+        if is_traj:
+            return self.play_trajectory(move_data)
+        return self.play_position(move_data)
+
     def test_move(self, name, moves_dir='reachy_tictactoe/moves'):
         """
         Test un mouvement spécifique
@@ -351,6 +380,119 @@ class MoveTester:
         
         print("=" * 70)
         print()
+
+    def test_sequence_grab1_to_cases(self, moves_dir='reachy_tictactoe/moves', pause_between_cases=2.0):
+        """
+        Exécute la séquence : grab_1 → case 1 → grab_1 → case 2 → ... → case 9.
+        Pour chaque case N : grab_1 → lift → put_N → back_N_upright → grab_1.
+
+        Args:
+            moves_dir: Dossier contenant les mouvements
+            pause_between_cases: Pause en secondes entre chaque case (défaut: 2.0)
+        """
+        required = ['grab_1', 'lift']
+        for n in range(1, 10):
+            required.append(f'back_{n}_upright')
+        # put : on accepte put_N_smooth_10_kp ou put_N
+        put_ok = False
+        for n in range(1, 10):
+            if os.path.exists(os.path.join(moves_dir, f'put_{n}_smooth_10_kp.npz')):
+                put_ok = True
+                break
+            if os.path.exists(os.path.join(moves_dir, f'put_{n}.npz')):
+                put_ok = True
+                break
+        if not put_ok:
+            print("❌ Aucun fichier put_1 à put_9 (ou put_*_smooth_10_kp) trouvé.\n")
+            return False
+        for name in required:
+            if not os.path.exists(os.path.join(moves_dir, f'{name}.npz')):
+                print(f"❌ Fichier manquant : {name}.npz\n")
+                return False
+
+        print("\n" + "=" * 70)
+        print("🧪 SÉQUENCE : grab_1 → case 1 → grab_1 → case 2 → ... → case 9")
+        print("=" * 70)
+        print("\nPour chaque case : grab_1 → lift → put_N → back_N_upright → grab_1")
+        print("\n⚠️  Le bras va enchaîner 9 cycles (grab_1 → case N → retour grab_1).")
+        confirm = input("   Continuer ? (o/n) : ").strip().lower()
+        if confirm not in ['o', 'y', 'yes', 'oui']:
+            print("❌ Séquence annulée\n")
+            return False
+
+        print("\n🔌 Activation du bras droit...")
+        self.reachy.turn_on('r_arm')
+        time.sleep(0.5)
+
+        results = []
+        for case in range(1, 10):
+            print("\n" + "-" * 60)
+            print(f"📍 CASE {case} (grab_1 → lift → put_{case} → back_{case}_upright → grab_1)")
+            print("-" * 60)
+
+            # 1. Aller en grab_1
+            print("  ▶️  grab_1...")
+            if not self._play_move_silent('grab_1', moves_dir):
+                print("  ❌ Échec grab_1")
+                results.append((case, False))
+                continue
+            time.sleep(0.3)
+
+            # 2. lift
+            print("  ▶️  lift...")
+            if not self._play_move_silent('lift', moves_dir):
+                print("  ❌ Échec lift")
+                results.append((case, False))
+                continue
+            time.sleep(0.3)
+
+            # 3. put_N (préférer smooth si présent)
+            put_name = f'put_{case}_smooth_10_kp'
+            fallback = f'put_{case}'
+            if not os.path.exists(os.path.join(moves_dir, f'{put_name}.npz')):
+                put_name, fallback = fallback, None
+            print(f"  ▶️  {put_name}...")
+            if not self._play_move_silent(put_name, moves_dir, fallback):
+                print(f"  ❌ Échec put_{case}")
+                results.append((case, False))
+                continue
+            time.sleep(0.3)
+
+            # 4. back_N_upright
+            print(f"  ▶️  back_{case}_upright...")
+            if not self._play_move_silent(f'back_{case}_upright', moves_dir):
+                print(f"  ❌ Échec back_{case}_upright")
+                results.append((case, False))
+                continue
+            time.sleep(0.3)
+
+            # 5. Retour à grab_1
+            print("  ▶️  retour grab_1...")
+            if not self._play_move_silent('grab_1', moves_dir):
+                print("  ❌ Échec retour grab_1")
+                results.append((case, False))
+                continue
+
+            print(f"  ✅ Case {case} terminée.")
+            results.append((case, True))
+
+            if case < 9:
+                print(f"  ⏸️  Pause {pause_between_cases}s avant la case {case + 1}...")
+                time.sleep(pause_between_cases)
+
+        # Résumé
+        print("\n" + "=" * 70)
+        print("📊 RÉSUMÉ SÉQUENCE")
+        print("=" * 70)
+        success_count = sum(1 for _, ok in results if ok)
+        print(f"\n✅ Réussis : {success_count}/9")
+        if success_count < 9:
+            for case, ok in results:
+                if not ok:
+                    print(f"  ❌ Case {case}")
+        print("=" * 70)
+        print()
+        return success_count == 9
     
     def interactive_mode(self, moves_dir='reachy_tictactoe/moves'):
         """Mode interactif"""
@@ -416,6 +558,9 @@ Exemples d'utilisation :
   # Mode interactif (recommandé)
   python scripts/moves/test_recorded_moves.py --interactive
   
+  # Séquence grab_1 → case 1 → grab_1 → case 2 → ... → case 9
+  python scripts/moves/test_recorded_moves.py --sequence
+  
   # Avec un autre robot
   python scripts/moves/test_recorded_moves.py --interactive --host 192.168.1.42
         """
@@ -424,6 +569,8 @@ Exemples d'utilisation :
     parser.add_argument('--name', type=str, help='Nom du mouvement à tester')
     parser.add_argument('--all', action='store_true', help='Tester tous les mouvements')
     parser.add_argument('--interactive', action='store_true', help='Mode interactif')
+    parser.add_argument('--sequence', action='store_true',
+                        help='Séquence grab_1 → case 1 → grab_1 → case 2 → ... → case 9')
     parser.add_argument('--host', type=str, default='localhost',
                        help='Adresse IP du robot (défaut: localhost)')
     parser.add_argument('--moves-dir', type=str, default='reachy_tictactoe/moves',
@@ -444,12 +591,16 @@ Exemples d'utilisation :
             tester.interactive_mode(args.moves_dir)
         elif args.all:
             tester.test_all_moves(args.moves_dir)
+        elif args.sequence:
+            success = tester.test_sequence_grab1_to_cases(args.moves_dir)
+            if not success:
+                return 1
         elif args.name:
             success = tester.test_move(args.name, args.moves_dir)
             if not success:
                 return 1
         else:
-            print("❌ Erreur : utilisez --name, --all ou --interactive")
+            print("❌ Erreur : utilisez --name, --all, --sequence ou --interactive")
             parser.print_help()
             return 1
     
