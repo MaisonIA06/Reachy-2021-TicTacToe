@@ -273,7 +273,7 @@ def get_board_configuration(img):
         row, col = case_coords[idx]
         
         # Si le score de confiance est trop bas, considérer comme vide
-        if score < 0.75:
+        if score < 0.85:
             logger.debug(f'Case ({row},{col}): score too low ({score:.2f}), marking as empty')
             piece = 0
         else:
