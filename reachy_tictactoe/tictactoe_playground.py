@@ -563,31 +563,11 @@ class TictactoePlayground(object):
         
         # Attendre stabilisation
         time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
-        
-        # Augmenter le couple du gripper pour une meilleure prise
-        self.reachy.r_arm.r_gripper.torque_limit = 100
-        
-        # Fermer la pince progressivement et avec force
-        logger.info(f'Closing gripper (before: {self.reachy.r_arm.r_gripper.present_position:.1f}°)')
-        
-        # Première fermeture
-        self.reachy.r_arm.r_gripper.goal_position = GRIPPER_CLOSED
-        time.sleep(0.5)  # Optimisé: réduit de 0.8s à 0.5s
-        
-        # Fermeture complète avec la fonction
-        self.close_gripper()
-        
-        # Vérifier que la pince est bien fermée
-        actual_pos = self.reachy.r_arm.r_gripper.present_position
-        logger.info(f'Gripper closed at: {actual_pos:.1f}°')
-        
-        # Si pas assez fermé (plus négatif que -12)
-        if actual_pos < -12:
-            logger.warning(f'Gripper not closed enough ({actual_pos:.1f}°), forcing closure...')
-            self.reachy.r_arm.r_gripper.goal_position = GRIPPER_CLOSED
-            time.sleep(0.5)  # Optimisé: réduit de 1.0s à 0.5s
-            actual_pos = self.reachy.r_arm.r_gripper.present_position
-            logger.info(f'Gripper forced to: {actual_pos:.1f}°')
+
+        # Fermeture progressive avec détection de blocage (cube saisi)
+        cube_grabbed = self.close_gripper_with_stall_detection()
+        if not cube_grabbed:
+            logger.warning('Aucun cube détecté lors de la fermeture du gripper')
     
         # Animation des antennes (SDK 2021 travaille en degrés)
         goto(
@@ -889,10 +869,10 @@ class TictactoePlayground(object):
         # Pause finale supprimée - non nécessaire
         
     def close_gripper(self):
-        """Ferme la pince"""
+        """Ferme la pince (méthode legacy, sans détection de blocage)"""
         # S'assurer que le gripper est activé
         self.reachy.r_arm.r_gripper.compliant = False
-        self.reachy.r_arm.r_gripper.torque_limit = 100
+        self.reachy.r_arm.r_gripper.torque_limit = 300
         time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s
 
         logger.info(f"Closing gripper from {self.reachy.r_arm.r_gripper.present_position:.1f}°")
@@ -910,6 +890,69 @@ class TictactoePlayground(object):
         time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
 
         logger.info(f"Gripper closed to {self.reachy.r_arm.r_gripper.present_position:.1f}°")
+
+    def close_gripper_with_stall_detection(
+        self,
+        max_load=150,
+        step_deg=1.0,
+        step_delay=0.05,
+        torque_limit=300,
+    ):
+        """
+        Ferme la pince progressivement et s'arrête dès qu'un blocage est détecté.
+
+        Principe : on descend `goal_position` d'un cran à la fois (`step_deg` degrés)
+        depuis la position courante vers `GRIPPER_CLOSED`. Après chaque cran, on lit
+        `present_load` ; si la charge dépasse `max_load`, c'est qu'un objet est entre
+        les mors → on s'arrête là (cube saisi sans l'écraser).
+
+        Args:
+            max_load: Seuil de charge (|present_load|) au-delà duquel on considère
+                      que la pince est en contact avec un objet. Plage Dynamixel:
+                      0 (libre) à ~1000 (blocage total). 150 ≈ contact ferme.
+            step_deg: Amplitude (en degrés) de chaque cran de fermeture.
+            step_delay: Pause entre crans, pour laisser le moteur atteindre la
+                        consigne et pour que `present_load` se stabilise.
+            torque_limit: Couple max autorisé pendant la fermeture.
+
+        Returns:
+            bool: True si un cube a été détecté (stall), False si la pince a
+                  atteint GRIPPER_CLOSED sans rien rencontrer.
+        """
+        g = self.reachy.r_arm.r_gripper
+        g.compliant = False
+        g.torque_limit = torque_limit
+        time.sleep(0.05)
+
+        start_pos = g.present_position
+        logger.info(
+            f"Stall close: from {start_pos:.1f}° to {GRIPPER_CLOSED}° "
+            f"(step={step_deg}°, max_load={max_load}, torque_limit={torque_limit})"
+        )
+
+        # Direction : GRIPPER_CLOSED (-6) > GRIPPER_OPEN (-45), donc on monte vers 0.
+        # Le bras peut partir d'une position ouverte (-45) ou intermédiaire.
+        target = start_pos
+        while target < GRIPPER_CLOSED:
+            target = min(target + step_deg, GRIPPER_CLOSED)
+            g.goal_position = target
+            time.sleep(step_delay)
+
+            load = abs(g.present_load) if g.present_load is not None else 0
+            if load >= max_load:
+                logger.info(
+                    f"Cube détecté à {g.present_position:.1f}° "
+                    f"(load={load:.0f}, target={target:.1f}°)"
+                )
+                # On maintient la consigne actuelle pour serrer fermement
+                g.goal_position = target
+                return True
+
+        # Aucun blocage : la pince a atteint GRIPPER_CLOSED sans rencontrer d'objet
+        logger.warning(
+            f"Pince fermée jusqu'à {g.present_position:.1f}° sans détection d'objet"
+        )
+        return False
         
     def open_gripper(self):
         """Ouvre la pince"""
