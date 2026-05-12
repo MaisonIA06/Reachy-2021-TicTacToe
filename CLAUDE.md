@@ -1,0 +1,115 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Projet
+
+Adaptation du TicTacToe Pollen Robotics (2019) pour le **SDK Reachy 2021** (`reachy-sdk>=0.7.0`). Le robot Reachy V1 joue au morpion contre un humain via vision par ordinateur (TensorFlow Lite), un agent Q-learning préentraîné, et des trajectoires enregistrées du bras droit.
+
+Communication avec l'utilisateur en **français** (voir aussi les sons MP3 et les logs).
+
+## Commandes essentielles
+
+### Setup
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt   # runtime
+pip install -e .                  # package en mode dev
+pip install -r requirements-training.txt   # SI entraînement (inclut tensorflow)
+```
+
+### Lancer le jeu
+```bash
+# Robot local
+python -m reachy_tictactoe.game_launcher
+# Robot distant
+python -m reachy_tictactoe.game_launcher --host 192.168.1.XXX
+# Avec log fichier
+python -m reachy_tictactoe.game_launcher --log-file /tmp/tictactoe.log
+# Via entry point installé
+reachy-tictactoe
+```
+
+### Calibration plateau (à refaire si le plateau bouge)
+```bash
+python scripts/calibration/calibrate_board.py --host localhost
+python scripts/calibration/check_calibrate_board.py --host localhost
+python scripts/calibration/check_calibrate_cases.py --host localhost
+# Édition directe / inspection
+python scripts/utils/show_config.py
+python scripts/utils/show_config.py --set-board LEFT RIGHT TOP BOTTOM
+```
+
+### Mouvements (à refaire à chaque déplacement du plateau)
+```bash
+# Enregistrer (mode compliant). Voir GUIDE_REENREGISTREMENT_MOUVEMENTS.md et CHECKLIST_MOUVEMENTS.txt
+python scripts/moves/record_moves.py --interactive --host localhost
+python scripts/moves/record_moves.py --name grab_1 --type position --host localhost
+python scripts/moves/record_moves.py --name put_1 --type trajectory --duration 2.5 --host localhost
+# Rejouer
+python scripts/moves/test_recorded_moves.py --name grab_1 --host localhost
+python scripts/moves/test_recorded_moves.py --all --host localhost
+```
+
+### Vision / modèles (voir GUIDE_CREATION_MODELES.md)
+```bash
+python scripts/training/collect_boxes_images.py --host localhost --class {empty|cube|cylinder} --target 50
+python scripts/training/collect_valid_board_images.py --host localhost --class {valid|invalid} --target 150
+python scripts/training/train_models.py --model {all|boxes|valid-board} --epochs 15
+python scripts/training/convert_to_tflite.py
+python scripts/training/check_training_data.py
+```
+
+Tous les scripts robot prennent `--host`. Pas de suite de tests pytest configurée — le « test » consiste à exécuter les scripts ci-dessus contre le robot.
+
+## Architecture
+
+### Boucle de jeu (`reachy_tictactoe/game_launcher.py`)
+1. Attente plateau vide → `coin_flip()` pour décider qui commence.
+2. Boucle adaptative : `analyze_board()` est appelée toutes les 100 ms (plateau changeant) ou 500 ms (plateau stable depuis ≥ 3 analyses).
+3. Au tour humain : `has_human_played()` détecte un nouveau **cylindre** déposé.
+4. Au tour robot : `choose_next_action()` (Q-learning) → `play()` → `play_pawn(grab_index, box_index)`.
+5. Détection de triche/incohérence avec **double vérification** (`shuffle_board()` si confirmée).
+6. Fin de partie → célébration/défaite/égalité, vérification température (`need_cooldown()` → 50 °C, sortie à 45 °C).
+
+### Convention pièces (⚠️ inversion vs code original Pollen 2019)
+- **Humain** : **cylindres** (`piece2id['cylinder'] = 2`)
+- **Reachy** : **cubes** (`piece2id['cube'] = 1`)
+- Q-learning : `Q[1] = QX` (cube/robot), `Q[2] = QO` (cylindre/humain). Voir `reachy_tictactoe/utils.py` et `rl_agent.py`.
+
+### Modules
+- `tictactoe_playground.py` — `TictactoePlayground` : encapsule `ReachySDK`, la boucle de jeu, l'affichage OpenCV (`display_board`), la séquence `play_pawn` (grab → fermer pince → lift → put trajectoire → ouvrir pince → back), et le cycle thermique. Précharge `moves/*.npz` + warmup TFLite dans un thread démon au `setup()`.
+- `behavior.py` — animations émotionnelles (`thinking`, `celebrate`, `sad`, `surprise`), `ThreadPoolExecutor` global (3 workers) pour paralléliser antennes/sons/bras.
+- `vision.py` — wrapper `TFLiteClassifier` (CPU uniquement, pas EdgeTPU). `get_board_configuration()` classe les 9 cases via `ttt-boxes.tflite` ; `is_board_valid()` filtre les images bruitées via `ttt-valid-board.tflite`. Si un modèle est compilé EdgeTPU, le wrapper lève une erreur avec instructions.
+- `detect_board.py` — détection des lignes de grille (Canny + HoughLinesP, KMeans pour clusteriser les 4 lignes principales). Paramètres dans `config.DETECTION_CONFIG`.
+- `rl_agent.py` — charge `Q-value.npz` (table Q précalculée) et renvoie les actions triées par valeur.
+- `config.py` — **source unique** pour calibration (`BOARD_POSITION`, `BOARD_CASES`), constantes gripper (`GRIPPER_OPEN=-45`, `GRIPPER_CLOSED=-6`, en degrés, plus négatif = plus ouvert), seuils de détection, chemins modèles. `save_calibration()` réécrit le fichier via regex.
+- `moves/__init__.py` — charge dynamiquement tous les `*.npz` du dossier en un dict `moves`. Définit `rest_pos` et `base_pos` (positions cibles joints en degrés).
+- `game_launcher.py` — orchestration, gestion des relances après exception (sleep 5 s puis nouvelle partie).
+
+### Mouvements enregistrés (`reachy_tictactoe/moves/*.npz`)
+Format : `np.load` → dict `{joint_name: array_positions}` à 100 Hz. Noms de joints au format SDK 2021 (`r_arm.r_shoulder_pitch`, etc.).
+- `grab_{1..5}` : prendre le pion N (les pions ≥ 4 passent d'abord par `grab_3` comme intermédiaire).
+- `lift` : remonter avec le pion serré.
+- `put_{1..9}_smooth_10_kp` : trajectoire de dépose dans la case (numérotation 1 = haut-gauche, 9 = bas-droite).
+- `back_{1..9}_upright` : retour depuis chaque case.
+- `my-turn`, `your-turn`, `shuffle-board` : animations.
+
+### Filtrage du gripper (⚠️ critique)
+Dans `goto_position` et `play_trajectory`, **toujours** passer `filter_gripper=True` quand on rejoue un mouvement enregistré pendant qu'un pion est tenu — sinon les positions de gripper enregistrées rouvrent la pince et le pion tombe. Voir `play_pawn()` dans `tictactoe_playground.py` : seule l'étape de pose appelle explicitement `open_gripper()`.
+
+### Caméra / vision
+`analyze_board()` : tête regarde `(0.5, 0, -0.6)`, capture `reachy.right_camera.last_frame`, sauvegarde dans `/tmp/snap.<rand>.jpg` (debug), valide via `is_board_valid`, puis classifie. `wait_for_img` a un timeout de 5 s et ne reboot plus le système (mode test) — la ligne `os.system('sudo reboot')` est volontairement commentée.
+
+### Sons
+MP3 dans `reachy_tictactoe/sounds/`, joués via `subprocess.run(['mpg123', '-a', 'hw:0,0', '-q', path])` (sortie audio ReSpeaker). Pour ajouter un son, le placer dans le dossier et l'appeler depuis `behavior.py` ou `tictactoe_playground.shuffle_board()`.
+
+## Pièges & conventions
+
+- **Joints en degrés** dans le SDK 2021 (pas radians). Antennes, bras, gripper.
+- **Activation gripper** : `self.reachy.r_arm.r_gripper.compliant = False` est appelé explicitement et vérifié dans `play_pawn` ; ne pas supposer qu'il reste actif.
+- **Modèles TFLite** : doivent être compilés **CPU**, pas EdgeTPU. Une erreur claire est levée sinon (`vision.py`).
+- **NumPy < 2.0** requis pour la compatibilité TensorFlow training (voir `requirements-training.txt`).
+- **Mode `--host localhost`** quand le code tourne sur le NUC du robot, IP distante sinon.
+- Si le plateau bouge physiquement, il faut **à la fois** recalibrer (`config.py` via `calibrate_board.py`) **et** réenregistrer les 29 fichiers `.npz` de `moves/` (voir `CHECKLIST_MOUVEMENTS.txt`).
+- Réponses et logs du jeu en français — conserver cette langue dans les nouveaux messages utilisateur.
