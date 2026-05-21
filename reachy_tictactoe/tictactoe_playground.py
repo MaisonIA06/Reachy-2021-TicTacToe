@@ -564,10 +564,16 @@ class TictactoePlayground(object):
         # Attendre stabilisation
         time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
 
-        # Fermeture progressive avec détection de blocage (cube saisi)
-        cube_grabbed = self.close_gripper_with_stall_detection()
-        if not cube_grabbed:
-            logger.warning('Aucun cube détecté lors de la fermeture du gripper')
+        # Fermeture forcée jusqu'à GRIPPER_CLOSED (méthode éprouvée).
+        self.close_gripper()
+
+        # Lecture de charge à titre informatif : le cube est-il bien tenu ?
+        # (charge faible = la pince s'est fermée dans le vide)
+        load = self.reachy.r_arm.r_gripper.present_load
+        if load is not None and abs(load) < 80:
+            logger.warning(
+                f'Cube peut-être non saisi (charge faible: {abs(load):.0f})'
+            )
     
         # Animation des antennes (SDK 2021 travaille en degrés)
         goto(
@@ -872,7 +878,7 @@ class TictactoePlayground(object):
         """Ferme la pince (méthode legacy, sans détection de blocage)"""
         # S'assurer que le gripper est activé
         self.reachy.r_arm.r_gripper.compliant = False
-        self.reachy.r_arm.r_gripper.torque_limit = 300
+        self.reachy.r_arm.r_gripper.torque_limit = 100
         time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s
 
         logger.info(f"Closing gripper from {self.reachy.r_arm.r_gripper.present_position:.1f}°")
