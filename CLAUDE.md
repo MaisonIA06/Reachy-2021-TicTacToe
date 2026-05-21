@@ -60,6 +60,16 @@ python scripts/training/convert_to_tflite.py
 python scripts/training/check_training_data.py
 ```
 
+### Diagnostic moteurs / pince
+```bash
+# Relevé position/température/charge/compliant de chaque joint (à un instant T)
+python scripts/utils/check_motors.py --host localhost
+# Moniteur continu temp/charge pendant une partie (à lancer dans un 2e terminal)
+python scripts/utils/monitor_temps.py --host localhost --joint r_wrist_roll
+# Libérer le couple d'un moteur resté rigide/bloqué après un arrêt brutal du jeu
+python scripts/utils/release_arm.py --host localhost
+```
+
 Tous les scripts robot prennent `--host`. Pas de suite de tests pytest configurée — le « test » consiste à exécuter les scripts ci-dessus contre le robot.
 
 ## Architecture
@@ -108,6 +118,7 @@ MP3 dans `reachy_tictactoe/sounds/`, joués via `subprocess.run(['mpg123', '-a',
 
 - **Joints en degrés** dans le SDK 2021 (pas radians). Antennes, bras, gripper.
 - **Activation gripper** : `self.reachy.r_arm.r_gripper.compliant = False` est appelé explicitement et vérifié dans `play_pawn` ; ne pas supposer qu'il reste actif.
+- **Fermeture pince** : `play_pawn` ferme via `close_gripper()`, qui **force** `goal_position` à `GRIPPER_CLOSED` avec `torque_limit=100`, puis lit `present_load` (alerte loggée si `< 80` ⇒ prise probablement à vide). ⚠️ Ne pas remplacer par une fermeture progressive à seuil de charge bas : les pics transitoires de démarrage du moteur déclenchent la détection trop tôt et la pince s'arrête quasi ouverte sans attraper le cube (régression observée et corrigée).
 - **Modèles TFLite** : doivent être compilés **CPU**, pas EdgeTPU. Une erreur claire est levée sinon (`vision.py`).
 - **NumPy < 2.0** requis pour la compatibilité TensorFlow training (voir `requirements-training.txt`).
 - **Mode `--host localhost`** quand le code tourne sur le NUC du robot, IP distante sinon.
