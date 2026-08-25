@@ -22,6 +22,15 @@ MIN_ANALYSIS_INTERVAL = 0.1   # Intervalle minimum entre analyses (100ms)
 MAX_ANALYSIS_INTERVAL = 0.5   # Intervalle maximum quand plateau stable (500ms)
 STABLE_THRESHOLD = 3          # Nombre d'analyses identiques avant de ralentir
 
+# Délai avant la double vérification d'une triche suspectée. Invariant
+# protégé : le double-check doit porter sur une SCÈNE distincte de la
+# première détection — wait_for_img() accepte n'importe quelle frame
+# existante (aucune garantie de fraîcheur) et la visée de tête est en
+# cache, donc sans ce délai on peut re-confirmer la même image où une
+# main occulte transitoirement le plateau. Ne pas le supprimer au motif
+# qu'« il n'y a plus de cache vision ».
+DOUBLE_CHECK_DELAY = 0.6
+
 
 def run_game_loop(tictactoe_playground):
     """
@@ -128,18 +137,14 @@ def run_game_loop(tictactoe_playground):
             else:
                 # Afficher le plateau avec le tour de l'humain
                 tictactoe_playground.display_board(board, current_player='human')
-                # Note: run_random_idle_behavior déjà optimisé (0.5s au lieu de 2s)
                 tictactoe_playground.run_random_idle_behavior()
 
         # Détection de triche ou incohérence
         if (tictactoe_playground.incoherent_board_detected(board) or
                 tictactoe_playground.cheating_detected(board, last_board, reachy_turn)):
-            # Double vérification SUR UNE IMAGE DISTINCTE : depuis que la
-            # visée de tête est mise en cache, deux analyses successives
-            # peuvent échantillonner quasiment la même frame (et le cache
-            # de validité vision dure 0,5 s). On espace pour laisser une
-            # occlusion transitoire (main au-dessus du plateau) disparaître.
-            time.sleep(0.6)
+            # Double vérification sur une scène distincte (voir la
+            # définition de DOUBLE_CHECK_DELAY).
+            time.sleep(DOUBLE_CHECK_DELAY)
             # Une analyse non concluante (None : image bruitée) ne vaut
             # PAS confirmation — on revérifie au prochain tour, comme
             # pour une fausse détection.

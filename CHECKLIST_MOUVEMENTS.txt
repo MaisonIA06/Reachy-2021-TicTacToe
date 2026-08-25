@@ -70,8 +70,6 @@ MOUVEMENTS BACK_UPRIGHT (Retour depuis les cases)            Temps: ~10 min
 MOUVEMENTS DE TRANSITION                                       Temps: ~5 min
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[ ] back_to_back.npz      (position intermédiaire)
-[ ] back_rest.npz         (transition vers repos)
 [ ] shuffle-board.npz     (balayage du plateau) - OPTIONNEL
 
 
@@ -89,7 +87,7 @@ TESTS                                                         Temps: ~15 min
 [ ] Test du mouvement lift
 [ ] Test de toutes les trajectoires put (1-9)
 [ ] Test de tous les mouvements back_upright (1-9)
-[ ] Test des transitions (back_to_back, back_rest, shuffle-board)
+[ ] Test de shuffle-board
 [ ] Test des animations (my-turn, your-turn)
 
 
@@ -106,7 +104,9 @@ VALIDATION FINALE                                              Temps: ~5 min
 TOTAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Mouvements enregistrés : ____ / 29 fichiers .npz
+Mouvements enregistrés : ____ / 36 fichiers .npz
+(27 requis par le jeu + 9 put_N intermédiaires créés automatiquement
+ par record_moves.py lors de l'enregistrement des put_N_smooth_10_kp)
 
 Temps total : _________ (estimation : ~1 heure)
 

@@ -77,26 +77,6 @@ CAMERA_CONFIG = {
 
 
 # ==============================================================================
-# PARAMÈTRES DE DÉTECTION DU PLATEAU (Algorithme de détection des lignes)
-# ==============================================================================
-
-DETECTION_CONFIG = {
-    # Paramètres Canny (détection des contours)
-    'canny_threshold1': 210,
-    'canny_threshold2': 256,
-    
-    # Paramètres HoughLinesP (détection des lignes)
-    'hough_threshold': 15,          # Minimum de votes
-    'min_line_length': 150,         # Longueur minimale d'une ligne en pixels
-    'max_line_gap': 50,             # Écart maximum entre segments de ligne
-    
-    # Critères pour classifier les lignes
-    'horizontal_slope_threshold': 0.1,  # |slope| < 0.1 = ligne horizontale
-    'vertical_slope_threshold': 2,      # |slope| > 2 = ligne verticale
-}
-
-
-# ==============================================================================
 # CHEMINS DES MODÈLES
 # ==============================================================================
 
@@ -128,22 +108,6 @@ MODELS = {
 
 GRIPPER_OPEN = -45      # Complètement ouvert
 GRIPPER_CLOSED = -6     # Fermé pour tenir les cylindres
-
-
-# ==============================================================================
-# PARAMÈTRES DU JEU
-# ==============================================================================
-
-GAME_CONFIG = {
-    # Durées des mouvements (en secondes)
-    'move_duration': 3.0,
-    'grab_duration': 2.0,
-    'place_duration': 3.0,
-    
-    # Comportements
-    'idle_behavior_enabled': True,
-    'celebration_enabled': True,
-}
 
 
 # ==============================================================================

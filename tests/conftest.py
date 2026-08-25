@@ -2,8 +2,7 @@
 
 Les tests tournent sans robot ni accélérateur : on injecte dans
 ``sys.modules`` des faux modules pour ``reachy_sdk`` (le robot),
-``tflite_runtime`` (l'inférence), ``sklearn`` (détection de grille,
-inutilisée dans les tests) et ``zzlog`` (logging du launcher),
+``tflite_runtime`` (l'inférence) et ``zzlog`` (logging du launcher),
 AVANT tout import de ``reachy_tictactoe``.
 
 L'injection est inconditionnelle : même si les vrais modules sont
@@ -96,16 +95,8 @@ sys.modules['tflite_runtime.interpreter'] = tflite_interpreter
 
 
 # ---------------------------------------------------------------------------
-# Stubs sklearn (detect_board) et zzlog (game_launcher)
+# Stub zzlog (game_launcher)
 # ---------------------------------------------------------------------------
-
-sklearn = types.ModuleType('sklearn')
-sklearn_cluster = types.ModuleType('sklearn.cluster')
-sklearn_cluster.KMeans = MagicMock(name='KMeans')
-sklearn.cluster = sklearn_cluster
-
-sys.modules['sklearn'] = sklearn
-sys.modules['sklearn.cluster'] = sklearn_cluster
 
 zzlog = types.ModuleType('zzlog')
 zzlog.setup = MagicMock(name='zzlog.setup')

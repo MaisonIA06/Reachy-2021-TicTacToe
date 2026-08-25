@@ -7,8 +7,6 @@ import numpy as np
 import cv2 as cv
 import logging
 import os
-import time
-import hashlib
 
 from PIL import Image
 
@@ -28,7 +26,6 @@ except ImportError:
         )
 
 from .utils import piece2id
-from .detect_board import get_board_cases
 from . import config
 
 
@@ -56,7 +53,7 @@ class TFLiteClassifier:
         if not os.path.exists(model_path):
             raise FileNotFoundError(
                 f"Le modèle {model_path} n'existe pas. "
-                f"Consultez EDGE_TPU_CONVERSION.md pour créer des modèles compatibles CPU."
+                f"Consultez GUIDE_CREATION_MODELES.md pour créer les modèles."
             )
         
         try:
@@ -70,12 +67,9 @@ class TFLiteClassifier:
                     f"\n\n{'='*70}\n"
                     f"ERREUR: Le modèle {os.path.basename(model_path)} est compilé pour EdgeTPU.\n"
                     f"Votre NUC n'a pas d'accélérateur EdgeTPU.\n\n"
-                    f"SOLUTIONS:\n"
-                    f"1. Reconvertir les modèles pour CPU (recommandé)\n"
-                    f"   Consultez: EDGE_TPU_CONVERSION.md\n\n"
-                    f"2. Utiliser un modèle de remplacement simple\n"
-                    f"   Exécutez: python scripts/create_fallback_models.py\n\n"
-                    f"3. Ajouter un accélérateur EdgeTPU USB à votre NUC\n"
+                    f"SOLUTION: reconvertir les modèles pour CPU avec\n"
+                    f"  python scripts/training/convert_to_tflite.py\n"
+                    f"(voir GUIDE_CREATION_MODELES.md)\n"
                     f"{'='*70}\n"
                 ) from e
             raise
@@ -171,31 +165,6 @@ board_cases = config.get_board_cases()
 board_rect = np.array(config.get_board_position())
 
 
-# ============================================================================
-# CACHE POUR OPTIMISATION DES PERFORMANCES
-# ============================================================================
-
-# Cache pour la validation du plateau (évite les inférences répétées)
-_valid_cache = {
-    'img_hash': None,
-    'result': None,
-    'timestamp': 0
-}
-
-# Durée de validité du cache en secondes
-CACHE_DURATION = 0.5
-
-
-def _compute_image_hash(img):
-    """
-    Calcule un hash rapide de l'image pour le cache.
-    Utilise seulement un échantillon pour la performance.
-    """
-    # Échantillonner l'image pour un hash rapide (pas besoin de tout hasher)
-    sample = img[::10, ::10].tobytes()[:2000]
-    return hashlib.md5(sample).hexdigest()
-
-
 def get_board_configuration(img):
     """
     Analyse l'image pour déterminer l'état du plateau.
@@ -286,64 +255,17 @@ def get_board_configuration(img):
     return board, sanity_check
 
 
-def identify_box(box_img):
-    """
-    Identifie le contenu d'une case
-    
-    Args:
-        box_img: Image de la case (numpy array BGR)
-        
-    Returns:
-        tuple: (label, score)
-            - label: ID du type de pièce (0=vide, 1=cube/robot, 2=cylindre/humain)
-            - score: Score de confiance (0-1)
-    """
-    try:
-        # Convertir l'image en PIL
-        pil_img = img_as_pil(box_img)
-        
-        # Classifier l'image
-        res = boxes_classifier.classify_with_image(pil_img, top_k=1)
-        
-        if not res:
-            return 0, 0.0
-            
-        label_id, score = res[0]
-        
-        return label_id, score
-        
-    except Exception as e:
-        logger.error(f'Box identification failed: {e}')
-        return 0, 0.0
-
-
-def is_board_valid(img, use_cache=True):
+def is_board_valid(img):
     """
     Vérifie si un plateau valide est présent dans l'image.
-    Utilise un cache pour éviter les inférences répétées sur la même image.
-    
+
     Args:
         img: Image numpy array (BGR)
-        use_cache: Si True, utilise le cache (défaut: True)
-        
+
     Returns:
         bool: True si un plateau valide est détecté
     """
-    global _valid_cache
-    
     try:
-        current_time = time.time()
-        
-        # Vérifier le cache si activé
-        if use_cache:
-            img_hash = _compute_image_hash(img)
-            
-            # Si même image et cache encore valide, retourner le résultat caché
-            if (_valid_cache['img_hash'] == img_hash and 
-                current_time - _valid_cache['timestamp'] < CACHE_DURATION):
-                logger.debug('Board validity check: using cached result')
-                return _valid_cache['result']
-        
         # Extraire la zone du plateau
         lx, rx, ly, ry = board_rect
         board_img = img[ly:ry, lx:rx]
@@ -366,13 +288,7 @@ def is_board_valid(img, use_cache=True):
             })
             
             result = label_id == 1 and score > 0.65
-        
-        # Mettre à jour le cache
-        if use_cache:
-            _valid_cache['img_hash'] = img_hash
-            _valid_cache['result'] = result
-            _valid_cache['timestamp'] = current_time
-        
+
         return result
         
     except Exception as e:

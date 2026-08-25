@@ -93,20 +93,6 @@ def print_config_detailed():
     print(f"      duration : {look_at['duration']}s")
     print()
     
-    # Paramètres de détection
-    print("🔍 PARAMÈTRES DE DÉTECTION")
-    print("-" * 80)
-    detect = config.DETECTION_CONFIG
-    print(f"   Seuils Canny:")
-    print(f"      threshold1 : {detect['canny_threshold1']}")
-    print(f"      threshold2 : {detect['canny_threshold2']}")
-    print()
-    print(f"   Paramètres HoughLinesP:")
-    print(f"      threshold       : {detect['hough_threshold']}")
-    print(f"      min_line_length : {detect['min_line_length']} px")
-    print(f"      max_line_gap    : {detect['max_line_gap']} px")
-    print()
-    
     # Instructions
     print("="*80)
     print("📝 POUR MODIFIER LA CONFIGURATION:")

@@ -14,14 +14,12 @@ Ce guide vous accompagne pas à pas pour ré-enregistrer tous les mouvements du 
 | **lift** | **Depuis** une position grab (pince fermée sur un pion) | **Vers** le haut : bras levé, ~20–30 cm au-dessus du plateau, position sûre pour se déplacer |
 | **put_1 à put_9** | **Depuis** position **lift** (pion en main) | **Vers** la case N du plateau : descente jusqu’à la hauteur de dépôt au-dessus de la case |
 | **back_1_upright à back_9_upright** | **Depuis** la position de dépôt (fin du put_N, pince ouverte) | **Vers** le haut : bras relevé en position sûre (éviter collisions avec le plateau) |
-| **back_to_back** | **Depuis** une position back_N_upright | **Vers** une position intermédiaire (à mi-chemin vers le repos) |
-| **back_rest** | **Depuis** back_to_back | **Vers** une transition douce vers rest_pos |
 | **shuffle-board** | Au-dessus du plateau | Balayage latéral fluide au-dessus du plateau (remettre les pions) |
 | **my-turn** | Position de base / repos | Animation courte « c’est mon tour » puis retour |
 | **your-turn** | Position de base / repos | Animation courte « c’est votre tour » puis retour |
 
 **Enchaînement typique d’un coup :**  
-`rest/base` → `grab_N` → `lift` → `put_case` → `back_N_upright` → `back_to_back` → `back_rest` → `rest`
+`rest/base` → `grab_N` → `lift` → `put_case` → `back_N_upright` → `rest`
 
 ---
 
@@ -185,43 +183,17 @@ python scripts/record_moves.py --name back_2_upright --type position
 
 ---
 
-### Étape 6 : Mouvements de transition
+### Étape 6 : Animation shuffle-board (réprimande apres triche)
 
-**6.1 - back_to_back** (Position intermédiaire)
-
-**D'où → Où :** **Depuis** une position back_N_upright **→ vers** une position à mi-chemin (avant le repos).
+**D'où → Où :** balayage latéral fluide **au-dessus du plateau** (geste de « mélanger » les pions).
 
 ```bash
-python scripts/record_moves.py --name back_to_back --type position
+python scripts/moves/record_moves.py --name shuffle-board --type trajectory --duration 4.0 --host localhost
 ```
 
-- Position intermédiaire entre une position back_upright et le retour au repos
-- Généralement à mi-chemin
-
-**6.2 - back_rest** (Transition vers repos)
-
-**D'où → Où :** **Depuis** back_to_back **→ vers** une position de transition douce vers rest_pos.
-
-```bash
-python scripts/record_moves.py --name back_rest --type position
-```
-
-- Position entre back_to_back et rest_pos
-- Transition douce vers le repos
-
-**6.3 - shuffle-board** (Mélanger le plateau) - OPTIONNEL
-
-**D'où → Où :** **Depuis** une position au-dessus du plateau **→ vers** balayage latéral fluide au-dessus du plateau (remettre les pions en place). Trajectoire complète enregistrée.
-
-```bash
-python scripts/record_moves.py --name shuffle-board --type trajectory --duration 4.0
-```
-
-- Trajectoire pour balayer le plateau (remettre les pions en place)
-- Mouvement latéral fluide au-dessus du plateau
-- Utilisé en fin de partie
-
----
+Points d'attention :
+- Rester au-dessus du plateau sans toucher les pions réels
+- Mouvement ample et lisible (il accompagne le son de réprimande)
 
 ### Étape 7 : Animations "turn" (C'est à qui le tour)
 
@@ -313,8 +285,6 @@ python scripts/test_recorded_moves.py --all --host localhost
 - [ ] back_9_upright.npz
 
 ### Transitions
-- [ ] back_to_back.npz
-- [ ] back_rest.npz
 - [ ] shuffle-board.npz
 
 ### Animations

@@ -253,8 +253,6 @@ class MoveRecorder:
         print("  • grab_1, grab_2, grab_3, grab_4, grab_5  (attraper les pions)")
         print("  • lift                                     (lever le pion)")
         print("  • back_1_upright à back_9_upright          (retour après dépôt)")
-        print("  • back_to_back                             (transition)")
-        print("  • back_rest                                (vers repos)")
         
         print("\n🎬 TRAJECTOIRES :")
         print("  • put_1 à put_9                            (placer dans case 1-9)")

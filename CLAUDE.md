@@ -77,7 +77,7 @@ Tous les scripts robot prennent `--host`.
 pip install -r requirements-dev.txt
 pytest          # suite complète, < 1 s
 ```
-La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, conventions pièces/joueurs, format des mouvements `.npz` (poses 0-d pour `goto_position` vs trajectoires 1-d à 100 Hz pour `play_trajectory`). `tests/conftest.py` injecte des **stubs inconditionnels** de `reachy_sdk`, `tflite_runtime`, `sklearn` et `zzlog` dans `sys.modules` — aucun robot ni modèle réel n'est sollicité, même sur le NUC. **CI GitHub Actions** (`.github/workflows/ci.yml`) : la suite tourne à chaque push/PR ; le CI doit être vert avant d'enchaîner. Les tests matériels restent les scripts ci-dessus, exécutés contre le robot.
+La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, conventions pièces/joueurs, format des mouvements `.npz` (poses 0-d pour `goto_position` vs trajectoires 1-d à 100 Hz pour `play_trajectory`). `tests/conftest.py` injecte des **stubs inconditionnels** de `reachy_sdk`, `tflite_runtime` et `zzlog` dans `sys.modules` — aucun robot ni modèle réel n'est sollicité, même sur le NUC. **CI GitHub Actions** (`.github/workflows/ci.yml`) : la suite tourne à chaque push/PR ; le CI doit être vert avant d'enchaîner. Les tests matériels restent les scripts ci-dessus, exécutés contre le robot.
 
 ## Architecture
 
@@ -98,7 +98,6 @@ La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, c
 - `tictactoe_playground.py` — `TictactoePlayground` : encapsule `ReachySDK`, la boucle de jeu, l'affichage OpenCV (`display_board`), la séquence `play_pawn` (grab → fermer pince → lift → put trajectoire → ouvrir pince → back), et le cycle thermique. Précharge `moves/*.npz` + warmup TFLite dans un thread démon au `setup()`.
 - `behavior.py` — animations émotionnelles (`thinking`, `celebrate`, `sad`, `surprise`), `ThreadPoolExecutor` global (3 workers) pour paralléliser antennes/sons/bras.
 - `vision.py` — wrapper `TFLiteClassifier` (CPU uniquement, pas EdgeTPU). `get_board_configuration()` classe les 9 cases via `ttt-boxes.tflite` ; `is_board_valid()` filtre les images bruitées via `ttt-valid-board.tflite`. Si un modèle est compilé EdgeTPU, le wrapper lève une erreur avec instructions.
-- `detect_board.py` — détection des lignes de grille (Canny + HoughLinesP, KMeans pour clusteriser les 4 lignes principales). Paramètres dans `config.DETECTION_CONFIG`.
 - `rl_agent.py` — charge `Q-value.npz` (table Q précalculée) et renvoie les actions triées par valeur.
 - `config.py` — **source unique** pour calibration (`BOARD_POSITION`, `BOARD_CASES`), constantes gripper (`GRIPPER_OPEN=-45`, `GRIPPER_CLOSED=-6`, en degrés, plus négatif = plus ouvert), seuils de détection, chemins modèles. `save_calibration()` réécrit le fichier via regex.
 - `moves/__init__.py` — charge dynamiquement tous les `*.npz` du dossier en un dict `moves`. Définit `rest_pos` et `base_pos` (positions cibles joints en degrés).
@@ -116,7 +115,7 @@ Format : `np.load` → dict `{joint_name: array_positions}` à 100 Hz. Noms de j
 Dans `goto_position` et `play_trajectory`, **toujours** passer `filter_gripper=True` quand on rejoue un mouvement enregistré pendant qu'un pion est tenu — sinon les positions de gripper enregistrées rouvrent la pince et le pion tombe. Voir `play_pawn()` dans `tictactoe_playground.py` : seule l'étape de pose appelle explicitement `open_gripper()`.
 
 ### Caméra / vision
-`analyze_board()` : tête regarde `(0.5, 0, -0.6)` — **visée mise en cache** (`_looking_at_board`) : le `look_at` d'1 s n'est refait que si la tête a bougé (`look_at()`/`random_look`), au début de chaque partie (`reset()`), ou après `ANALYSIS_FAILURES_BEFORE_REAIM` (5) analyses ratées d'affilée (récupération si la tête a été bousculée). Capture `reachy.right_camera.last_frame`, sauvegarde dans `/tmp/snap.<rand>.jpg` (debug), valide via `is_board_valid`, puis classifie. `wait_for_img` a un timeout de 5 s et ne reboot plus le système (mode test) — la ligne `os.system('sudo reboot')` est volontairement commentée.
+`analyze_board()` : tête regarde `(0.5, 0, -0.6)` — **visée mise en cache** (`_looking_at_board`) : le `look_at` d'1 s n'est refait que si la tête a bougé (`look_at()`), au début de chaque partie (`reset()`), ou après `ANALYSIS_FAILURES_BEFORE_REAIM` (5) analyses ratées d'affilée (récupération si la tête a été bousculée). Capture `reachy.right_camera.last_frame`, sauvegarde dans `/tmp/snap.<rand>.jpg` (debug), valide via `is_board_valid`, puis classifie. `wait_for_img` a un timeout de 5 s et ne reboot plus le système (mode test) — la ligne `os.system('sudo reboot')` est volontairement commentée.
 
 ### Sons
 MP3 dans `reachy_tictactoe/sounds/`, joués via `subprocess.run(['mpg123', '-a', 'hw:0,0', '-q', path])` (sortie audio ReSpeaker). Pour ajouter un son, le placer dans le dossier et l'appeler depuis `behavior.py` ou `tictactoe_playground.shuffle_board()`.
@@ -131,5 +130,5 @@ MP3 dans `reachy_tictactoe/sounds/`, joués via `subprocess.run(['mpg123', '-a',
 - **Modèles TFLite** : doivent être compilés **CPU**, pas EdgeTPU. Une erreur claire est levée sinon (`vision.py`).
 - **NumPy < 2.0** requis pour la compatibilité TensorFlow training (voir `requirements-training.txt`).
 - **Mode `--host localhost`** quand le code tourne sur le NUC du robot, IP distante sinon.
-- Si le plateau bouge physiquement, il faut **à la fois** recalibrer (`config.py` via `calibrate_board.py`) **et** réenregistrer les 29 fichiers `.npz` de `moves/` (voir `CHECKLIST_MOUVEMENTS.txt`).
+- Si le plateau bouge physiquement, il faut **à la fois** recalibrer (`config.py` via `calibrate_board.py`) **et** réenregistrer les fichiers `.npz` de `moves/` — 27 requis par le jeu, plus les 9 `put_N` intermédiaires créés automatiquement (voir `CHECKLIST_MOUVEMENTS.txt`).
 - Réponses et logs du jeu en français — conserver cette langue dans les nouveaux messages utilisateur.

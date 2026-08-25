@@ -29,7 +29,6 @@ setup(
         'opencv-python>=4.5.0',
         'Pillow>=8.0.0',
         'pyquaternion>=0.9.0',
-        'scikit-learn>=1.0.0',  # detect_board.py (KMeans)
     ],
     extras_require={
         'vision': [

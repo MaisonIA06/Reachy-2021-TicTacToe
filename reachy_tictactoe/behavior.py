@@ -10,7 +10,6 @@ import random
 import subprocess
 import shutil
 
-from threading import Event, Thread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from reachy_sdk.trajectory import goto
 from reachy_sdk.trajectory.interpolation import InterpolationMode
@@ -123,47 +122,6 @@ def play_sound_safe(sound_path, device='hw:0,0'):
         logger.error(f'Sound playback failed: {e}')
 
 
-class FollowHand(object):
-    """Comportement de suivi de la main avec la tête"""
-    
-    def __init__(self, reachy):
-        """
-        Initialise le comportement de suivi
-        
-        Args:
-            reachy: Instance ReachySDK
-        """
-        self.reachy = reachy
-        self.running = Event()
-        
-    def start(self):
-        """Lance le comportement de suivi"""
-        logger.info('Launching follow hand behavior')
-        self.t = Thread(target=self.asserv)
-        self.running.set()
-        self.t.start()
-        
-    def stop(self):
-        """Arrête le comportement de suivi"""
-        logger.info('Stopping follow hand behavior')
-        self.running.clear()
-        self.t.join()
-        
-    def asserv(self):
-        """Boucle d'asservissement pour suivre la main"""
-        while self.running.is_set():
-            try:
-                # Récupérer la position de la main via la cinématique directe
-                # Note: Cette fonctionnalité nécessite d'avoir accès à la FK
-                # qui n'est pas directement disponible dans le SDK 2021
-                # Cette partie devrait être adaptée selon les besoins
-                pass
-            except Exception as e:
-                logger.warning(f'Follow hand error: {e}')
-                
-            time.sleep(0.01)
-
-
 def head_home(reachy, duration=1.0):
     """
     Remet la tête en position neutre
@@ -225,32 +183,6 @@ def sad(reachy):
     run_parallel_tasks(antenna_movement, play_sound)
     
     logger.info('Ending behavior', extra={'behavior': 'sad'})
-
-def happy(reachy):
-    """
-    Comportement de joie (victoire)
-    
-    Args:
-        reachy: Instance ReachySDK
-    """
-    logger.info('Starting behavior', extra={'behavior': 'happy'})
-    
-    # Animation joyeuse des antennes
-    dur = 3
-    t = np.linspace(0, dur, int(dur * 100))
-    pos = 10 * np.sin(2 * np.pi * 5 * t)  # Oscillation rapide
-    
-    for p in pos:
-        # SDK 2021 travaille en degrés ; écriture directe pour un
-        # balayage fluide à 100 Hz
-        reachy.head.l_antenna.goal_position = p
-        reachy.head.r_antenna.goal_position = -p
-        time.sleep(0.01)
-
-    head_home(reachy, duration=1)
-    
-    logger.info('Ending behavior', extra={'behavior': 'happy'})
-
 
 def surprise(reachy):
     """
@@ -454,70 +386,3 @@ def thinking(reachy, used_sounds=None):
     run_parallel_tasks(antenna_movement)
 
     logger.info('Ending behavior', extra={'behavior': 'thinking'})
-
-def wave_hello(reachy):
-    """
-    Fait un signe de la main pour saluer
-    
-    Args:
-        reachy: Instance ReachySDK
-    """
-    logger.info('Starting behavior', extra={'behavior': 'wave_hello'})
-    
-    # Animation des antennes pour accompagner le salut (SDK 2021 en degrés)
-    for _ in range(3):
-        goto(
-            goal_positions={
-                reachy.head.l_antenna: 45,
-                reachy.head.r_antenna: -45,
-            },
-            duration=0.4,
-            interpolation_mode=InterpolationMode.MINIMUM_JERK,
-        )
-        
-        goto(
-            goal_positions={
-                reachy.head.l_antenna: -45,
-                reachy.head.r_antenna: 45,
-            },
-            duration=0.4,
-            interpolation_mode=InterpolationMode.MINIMUM_JERK,
-        )
-        
-    head_home(reachy, duration=1)
-    
-    logger.info('Ending behavior', extra={'behavior': 'wave_hello'})
-
-
-def impatient(reachy):
-    """
-    Comportement d'impatience (quand l'humain met trop de temps à jouer)
-    
-    Args:
-        reachy: Instance ReachySDK
-    """
-    logger.info('Starting behavior', extra={'behavior': 'impatient'})
-    
-    # Mouvements rapides et saccadés (SDK 2021 en degrés)
-    for _ in range(5):
-        goto(
-            goal_positions={
-                reachy.head.l_antenna: 90,
-                reachy.head.r_antenna: -90,
-            },
-            duration=0.2,
-            interpolation_mode=InterpolationMode.LINEAR,
-        )
-        
-        goto(
-            goal_positions={
-                reachy.head.l_antenna: 0,
-                reachy.head.r_antenna: 0,
-            },
-            duration=0.2,
-            interpolation_mode=InterpolationMode.LINEAR,
-        )
-        
-    head_home(reachy, duration=0.5)
-    
-    logger.info('Ending behavior', extra={'behavior': 'impatient'})

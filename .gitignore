@@ -53,3 +53,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Backups de modèles créés par scripts/training/convert_to_tflite.py
+*_backup_*.tflite

@@ -265,20 +265,10 @@ class TictactoePlayground(object):
         """Vérifie si le plateau est vide et prêt"""
         return np.sum(board) == 0
         
-    def random_look(self):
-        """Fait regarder Reachy dans une direction aléatoire"""
-        dy = 0.4
-        y = np.random.rand() * dy - (dy / 2)
-        
-        dz = 0.75
-        z = np.random.rand() * dz - 0.5
-
-        self.look_at(0.5, y, z, duration=1.5)
-        
     def run_random_idle_behavior(self):
         """Comportement d'attente aléatoire"""
         logger.info('Reachy is playing a random idle behavior')
-        time.sleep(0.5)  # Optimisé: réduit de 2s à 0.5s pour fluidité
+        time.sleep(0.5)
     
     def run_thinking_behavior(self):
         """Comportement de réflexion"""
@@ -564,15 +554,15 @@ class TictactoePlayground(object):
         self.reachy.turn_on('r_arm')
         
         # CRITIQUE: Forcer l'activation du gripper
-        time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
+        time.sleep(0.15)
         self.reachy.r_arm.r_gripper.compliant = False
-        time.sleep(0.1)  # Optimisé: réduit de 0.2s à 0.1s
+        time.sleep(0.1)
         
         # Vérifier que le gripper est bien activé
         if self.reachy.r_arm.r_gripper.compliant:
             logger.error("❌ GRIPPER TOUJOURS EN MODE COMPLIANT!")
             self.reachy.r_arm.r_gripper.compliant = False
-            time.sleep(0.2)  # Optimisé: réduit de 0.5s à 0.2s
+            time.sleep(0.2)
         
         logger.info(f"Gripper state: compliant={self.reachy.r_arm.r_gripper.compliant}, "
                     f"position={self.reachy.r_arm.r_gripper.present_position:.1f}°")
@@ -603,7 +593,7 @@ class TictactoePlayground(object):
         )
         
         # Attendre stabilisation
-        time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
+        time.sleep(0.15)
 
         # Fermeture forcée jusqu'à GRIPPER_CLOSED (méthode éprouvée).
         self.close_gripper()
@@ -639,7 +629,7 @@ class TictactoePlayground(object):
             )
         
         # Pause supplémentaire avant de lever (maintenir la pression)
-        time.sleep(0.1)  # Optimisé: réduit de 0.2s à 0.1s
+        time.sleep(0.1)
         
         # Lever le pion (CRITIQUE: Ne pas rouvrir le gripper!)
         self.goto_position(
@@ -648,7 +638,6 @@ class TictactoePlayground(object):
             filter_gripper=True,  # Ne pas toucher au gripper
         )
         
-        # Pause après lever supprimée - non nécessaire
         
         # Placer le pion
         put = moves[f'put_{box_index}_smooth_10_kp']
@@ -897,30 +886,24 @@ class TictactoePlayground(object):
     def goto_base_position(self, duration=2.0):
         """Va à la position de base"""
         self.reachy.turn_on('r_arm')
-        time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s
+        time.sleep(0.05)
         
         self.goto_position(base_pos, duration)
         
     def goto_rest_position(self, duration=2.0):
         """Va à la position de repos"""
-        # Pause initiale supprimée - non nécessaire
         
         self.goto_base_position(0.6 * duration)
-        # Pause intermédiaire supprimée - goto_position attend déjà la fin
         
         self.goto_position(rest_pos, 0.4 * duration)
-        time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s pour stabilisation finale
-        
-        # Réduire le couple de certains moteurs
-        # Note: Dans le SDK 2021, il faut utiliser compliant mode
-        # Pause finale supprimée - non nécessaire
+        time.sleep(0.05)
         
     def close_gripper(self):
         """Ferme la pince (méthode legacy, sans détection de blocage)"""
         # S'assurer que le gripper est activé
         self.reachy.r_arm.r_gripper.compliant = False
         self.reachy.r_arm.r_gripper.torque_limit = 100
-        time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s
+        time.sleep(0.05)
 
         logger.info(f"Closing gripper from {self.reachy.r_arm.r_gripper.present_position:.1f}°")
 
@@ -967,7 +950,7 @@ class TictactoePlayground(object):
             except Exception as e:
                 logger.debug(f'Camera read attempt failed: {e}')
                 pass
-            time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s pour réactivité
+            time.sleep(0.05)
             
         # MODE TEST: Ne pas rebooter, juste logger l'erreur
         logger.warning(f'No image received after {timeout} sec. Camera may not be configured.')
