@@ -30,6 +30,10 @@ HUMAN_COLOR = (255, 0, 0)
 DRAW_COLOR = (0, 128, 0)
 NEUTRAL_COLOR = (0, 0, 0)
 
+# Après ce nombre d'analyses ratées d'affilée, on considère que la tête
+# a pu être déplacée (bousculée, couple perdu) et on re-vise le plateau.
+ANALYSIS_FAILURES_BEFORE_REAIM = 5
+
 
 def game_status_text(current_player=None, winner=None):
     """Retourne (texte, couleur BGR) du bandeau de statut du plateau."""
@@ -66,6 +70,10 @@ class TictactoePlayground(object):
         # Connexion avec le SDK 2021
         self.reachy = ReachySDK(host=host)
         self.pawn_played = 0
+        # La tête est-elle déjà orientée vers le plateau ? (évite de
+        # refaire un look_at d'une seconde à chaque analyse)
+        self._looking_at_board = False
+        self._failed_analyses = 0
         # Track des sons utilisés pendant la partie
         self.used_thinking_sounds = set()
         # Thread de préchargement
@@ -245,6 +253,10 @@ class TictactoePlayground(object):
         self.pawn_played = 0
         # Réinitialiser le track des sons utilisés
         self.used_thinking_sounds = set()
+        # Nouvelle partie : re-viser le plateau (la tête a pu bouger
+        # pendant les célébrations ou un cooldown)
+        self._looking_at_board = False
+        self._failed_analyses = 0
         empty_board = np.zeros((3, 3), dtype=np.uint8).flatten()
         
         return empty_board
@@ -260,9 +272,8 @@ class TictactoePlayground(object):
         
         dz = 0.75
         z = np.random.rand() * dz - 0.5
-        
+
         self.look_at(0.5, y, z, duration=1.5)
-        time.sleep(1.5)
         
     def run_random_idle_behavior(self):
         """Comportement d'attente aléatoire"""
@@ -293,55 +304,70 @@ class TictactoePlayground(object):
             x, y, z: Coordonnées du point cible (en mètres)
             duration: Durée du mouvement
         """
+        # Invalider AVANT l'appel : même si le mouvement échoue à
+        # mi-course, la tête n'est plus fiablement sur le plateau.
+        self._looking_at_board = False
         try:
-            # SDK 2021: Utiliser la méthode look_at de head
-            # Format: reachy.head.look_at(x, y, z, duration)
+            # SDK 2021 : head.look_at est BLOQUANT (rend la main à la
+            # fin du mouvement), pas de sleep supplémentaire.
             self.reachy.head.look_at(x=x, y=y, z=z, duration=duration)
-            time.sleep(duration)  # Attendre la fin du mouvement
         except Exception as e:
             logger.warning(f'Look at failed: {e}')
             
+    def _analysis_failed(self):
+        """Comptabilise une analyse ratée ; après une série d'échecs,
+        force une nouvelle visée du plateau (la tête a pu bouger)."""
+        self._failed_analyses += 1
+        if self._failed_analyses >= ANALYSIS_FAILURES_BEFORE_REAIM:
+            logger.warning(
+                'Several failed analyses in a row: will re-aim the board')
+            self._looking_at_board = False
+            self._failed_analyses = 0
+        return None
+
     def analyze_board(self):
         """Analyse l'état actuel du plateau de jeu"""
-        # Activer les moteurs du cou
-        self.reachy.turn_on('head')
-        time.sleep(0.05)  # Optimisé: réduit de 0.1s à 0.05s
-        
-        # Regarder vers le plateau (position calibrée dans Check_boxes.ipynb)
-        # z=-0.6 pour voir le plateau complet
-        self.reachy.head.look_at(x=0.5, y=0, z=-0.6, duration=1.0)
-        time.sleep(0.1)  # Optimisé: réduit de 0.2s à 0.1s
-        
+        # Regarder vers le plateau (z=-0.6 pour le voir en entier),
+        # seulement si la tête n'y est pas déjà : la boucle de jeu
+        # appelle cette méthode plusieurs fois par seconde.
+        if not self._looking_at_board:
+            self.reachy.turn_on('head')
+            time.sleep(0.05)
+            self.reachy.head.look_at(x=0.5, y=0, z=-0.6, duration=1.0)
+            time.sleep(0.1)
+            self._looking_at_board = True
+
         # Attendre une image de la caméra
         self.wait_for_img()
-        
+
         # Capturer l'image depuis la caméra droite
         try:
             img = self.reachy.right_camera.last_frame
         except Exception as e:
             logger.warning(f'Failed to read camera: {e}')
-            return None
-            
+            return self._analysis_failed()
+
         # Sauvegarder l'image (debug)
         import cv2 as cv
         i = np.random.randint(1000)
         path = f'/tmp/snap.{i}.jpg'
         cv.imwrite(path, img)
-        
+
         logger.info(
             'Getting an image from camera',
             extra={
                 'img_path': path,
             },
         )
-        
+
         # Vérifier que le plateau est valide
         if not is_board_valid(img):
-            return None
-            
+            return self._analysis_failed()
+
         # Analyser la configuration du plateau
         board, _ = get_board_configuration(img)
-        
+        self._failed_analyses = 0
+
         logger.info(
             'Board analyzed',
             extra={
@@ -349,7 +375,7 @@ class TictactoePlayground(object):
                 'img_path': path,
             },
         )
-        
+
         return board.flatten()
         
     def incoherent_board_detected(self, board):
@@ -777,13 +803,13 @@ class TictactoePlayground(object):
             if joint_obj is not None:
                 joint_positions[joint_obj] = pos
                 
+        # goto() du SDK 2021 est BLOQUANT : pas d'attente supplémentaire.
         goto(
             goal_positions=joint_positions,
             duration=duration,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
-        time.sleep(duration)
-        
+
     def _get_joint_by_name(self, joint_name):
         """
         Récupère un objet Joint à partir de son nom
@@ -898,17 +924,18 @@ class TictactoePlayground(object):
 
         logger.info(f"Closing gripper from {self.reachy.r_arm.r_gripper.present_position:.1f}°")
 
-        # Fermer pour tenir les cylindres
+        # Fermer pour tenir les cylindres (goto bloquant)
         goto(
             goal_positions={self.reachy.r_arm.r_gripper: GRIPPER_CLOSED},
-            duration=0.5,  # Optimisé: réduit de 0.8s à 0.5s
+            duration=0.5,
             interpolation_mode=InterpolationMode.LINEAR,
         )
-        time.sleep(0.5)  # Optimisé: réduit de 0.8s à 0.5s
 
-        # Forcer la position
+        # Forcer la position et laisser le servo établir le couple de
+        # blocage sur le cube AVANT que play_pawn ne lise present_load
+        # (une lecture trop précoce donne une valeur transitoire).
         self.reachy.r_arm.r_gripper.goal_position = GRIPPER_CLOSED
-        time.sleep(0.15)  # Optimisé: réduit de 0.3s à 0.15s
+        time.sleep(0.3)
 
         logger.info(f"Gripper closed to {self.reachy.r_arm.r_gripper.present_position:.1f}°")
 
@@ -918,11 +945,10 @@ class TictactoePlayground(object):
         
         goto(
             goal_positions={self.reachy.r_arm.r_gripper: GRIPPER_OPEN},
-            duration=0.3,  # Optimisé: réduit de 0.5s à 0.3s
+            duration=0.3,
             interpolation_mode=InterpolationMode.LINEAR,
         )
-        time.sleep(0.3)  # Optimisé: réduit de 0.5s à 0.3s
-        
+
         logger.info(f"Gripper opened to {self.reachy.r_arm.r_gripper.present_position:.1f}°")
         
     def wait_for_img(self):
@@ -1006,15 +1032,10 @@ class TictactoePlayground(object):
             
             while self._idle_running.is_set():
                 p = offset + amp * np.sin(2 * np.pi * f * time.time())
-                # SDK 2021 travaille en degrés
-                goto(
-                    goal_positions={
-                        self.reachy.head.l_antenna: p,
-                        self.reachy.head.r_antenna: -p,
-                    },
-                    duration=0.01,
-                    interpolation_mode=InterpolationMode.LINEAR,
-                )
+                # SDK 2021 travaille en degrés ; écriture directe de
+                # goal_position pour un balayage fluide à 100 Hz
+                self.reachy.head.l_antenna.goal_position = p
+                self.reachy.head.r_antenna.goal_position = -p
                 time.sleep(0.01)
                 
         self._idle_t = Thread(target=_idle)
@@ -1025,7 +1046,6 @@ class TictactoePlayground(object):
         self._idle_running.clear()
         self._idle_t.join()
         
-        # CORRECTION: Utiliser objets Joint
         goto(
             goal_positions={
                 self.reachy.head.l_antenna: 0.0,
@@ -1034,4 +1054,3 @@ class TictactoePlayground(object):
             duration=1.0,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
-        time.sleep(1.0)

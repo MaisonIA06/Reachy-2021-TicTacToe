@@ -134,9 +134,15 @@ def run_game_loop(tictactoe_playground):
         # Détection de triche ou incohérence
         if (tictactoe_playground.incoherent_board_detected(board) or
                 tictactoe_playground.cheating_detected(board, last_board, reachy_turn)):
-            # Double vérification. Une analyse non concluante (None :
-            # image bruitée) ne vaut PAS confirmation — on revérifie
-            # au prochain tour, comme pour une fausse détection.
+            # Double vérification SUR UNE IMAGE DISTINCTE : depuis que la
+            # visée de tête est mise en cache, deux analyses successives
+            # peuvent échantillonner quasiment la même frame (et le cache
+            # de validité vision dure 0,5 s). On espace pour laisser une
+            # occlusion transitoire (main au-dessus du plateau) disparaître.
+            time.sleep(0.6)
+            # Une analyse non concluante (None : image bruitée) ne vaut
+            # PAS confirmation — on revérifie au prochain tour, comme
+            # pour une fausse détection.
             double_check_board = tictactoe_playground.analyze_board()
             if double_check_board is None or np.any(double_check_board != board):
                 continue

@@ -116,13 +116,15 @@ Format : `np.load` → dict `{joint_name: array_positions}` à 100 Hz. Noms de j
 Dans `goto_position` et `play_trajectory`, **toujours** passer `filter_gripper=True` quand on rejoue un mouvement enregistré pendant qu'un pion est tenu — sinon les positions de gripper enregistrées rouvrent la pince et le pion tombe. Voir `play_pawn()` dans `tictactoe_playground.py` : seule l'étape de pose appelle explicitement `open_gripper()`.
 
 ### Caméra / vision
-`analyze_board()` : tête regarde `(0.5, 0, -0.6)`, capture `reachy.right_camera.last_frame`, sauvegarde dans `/tmp/snap.<rand>.jpg` (debug), valide via `is_board_valid`, puis classifie. `wait_for_img` a un timeout de 5 s et ne reboot plus le système (mode test) — la ligne `os.system('sudo reboot')` est volontairement commentée.
+`analyze_board()` : tête regarde `(0.5, 0, -0.6)` — **visée mise en cache** (`_looking_at_board`) : le `look_at` d'1 s n'est refait que si la tête a bougé (`look_at()`/`random_look`), au début de chaque partie (`reset()`), ou après `ANALYSIS_FAILURES_BEFORE_REAIM` (5) analyses ratées d'affilée (récupération si la tête a été bousculée). Capture `reachy.right_camera.last_frame`, sauvegarde dans `/tmp/snap.<rand>.jpg` (debug), valide via `is_board_valid`, puis classifie. `wait_for_img` a un timeout de 5 s et ne reboot plus le système (mode test) — la ligne `os.system('sudo reboot')` est volontairement commentée.
 
 ### Sons
 MP3 dans `reachy_tictactoe/sounds/`, joués via `subprocess.run(['mpg123', '-a', 'hw:0,0', '-q', path])` (sortie audio ReSpeaker). Pour ajouter un son, le placer dans le dossier et l'appeler depuis `behavior.py` ou `tictactoe_playground.shuffle_board()`.
 
 ## Pièges & conventions
 
+- **`goto()` et `head.look_at()` du SDK 2021 sont BLOQUANTS** (ils ne rendent la main qu'à la fin du mouvement — docstring officielle : « This function will block until the movement is over »). ⚠️ **Ne jamais ajouter de `time.sleep(duration)` après un `goto`** : cela double le temps de chaque geste (régression de latence corrigée sur tout le code). Les seuls `sleep` légitimes sont les courtes stabilisations servo (ex. 0,3 s après la fermeture forcée du gripper, avant la lecture de `present_load`) et les balayages à 100 Hz par `goal_position`.
+- **Sons en tâche de fond** : `behavior._sound_executor` (1 seul worker — le périphérique ALSA `hw:0,0` est exclusif, deux `mpg123` simultanés échoueraient). Le son de `thinking` est lancé en fond pour ne pas retarder le bras ; échec loggé par callback.
 - **Joints en degrés** dans le SDK 2021 (pas radians). Antennes, bras, gripper.
 - **Activation gripper** : `self.reachy.r_arm.r_gripper.compliant = False` est appelé explicitement et vérifié dans `play_pawn` ; ne pas supposer qu'il reste actif.
 - **Fermeture pince** : `play_pawn` ferme via `close_gripper()`, qui **force** `goal_position` à `GRIPPER_CLOSED` avec `torque_limit=100`, puis lit `present_load` (alerte loggée si `< 80` ⇒ prise probablement à vide). ⚠️ Ne pas remplacer par une fermeture progressive à seuil de charge bas : les pics transitoires de démarrage du moteur déclenchent la détection trop tôt et la pince s'arrête quasi ouverte sans attraper le cube (régression observée et corrigée).

@@ -26,6 +26,19 @@ logger = logging.getLogger('reachy.tictactoe.behavior')
 # Pool de threads réutilisable (évite création/destruction répétée de threads)
 _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="reachy_behavior_")
 
+# Executor dédié aux sons joués en tâche de fond : UN seul worker, car le
+# périphérique ALSA (hw:0,0) est exclusif — deux mpg123 simultanés
+# échoueraient en « device busy ». La file d'attente sérialise les sons.
+_sound_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reachy_sound_")
+
+
+def _log_sound_failure(future):
+    """Callback de fin : un son en tâche de fond ne doit pas échouer
+    silencieusement (Future orphelin)."""
+    exc = future.exception()
+    if exc is not None:
+        logger.warning(f'Background sound failed: {exc}')
+
 # Timeout global pour les tâches parallèles (sécurité)
 TASK_TIMEOUT = 15  # secondes
 
@@ -168,7 +181,6 @@ def head_home(reachy, duration=1.0):
         duration=duration,
         interpolation_mode=InterpolationMode.MINIMUM_JERK,
     )
-    time.sleep(duration)
 
 
 def sad(reachy):
@@ -229,18 +241,12 @@ def happy(reachy):
     pos = 10 * np.sin(2 * np.pi * 5 * t)  # Oscillation rapide
     
     for p in pos:
-        # SDK 2021 travaille en degrés
-        goto(
-            goal_positions={
-                reachy.head.l_antenna: p,
-                reachy.head.r_antenna: -p,
-            },
-            duration=0.01,
-            interpolation_mode=InterpolationMode.LINEAR,
-        )
+        # SDK 2021 travaille en degrés ; écriture directe pour un
+        # balayage fluide à 100 Hz
+        reachy.head.l_antenna.goal_position = p
+        reachy.head.r_antenna.goal_position = -p
         time.sleep(0.01)
-        
-    time.sleep(1)
+
     head_home(reachy, duration=1)
     
     logger.info('Ending behavior', extra={'behavior': 'happy'})
@@ -266,7 +272,6 @@ def surprise(reachy):
             duration=0.25,  # Optimisé
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
-        time.sleep(0.25)
         
         # 2. Retour au centre
         goto(
@@ -277,7 +282,6 @@ def surprise(reachy):
             duration=0.3,  # Optimisé
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
-        time.sleep(0.3)
         
         # 3. Oscillation symétrique (réduite à 1 cycle)
         for _ in range(1):
@@ -289,7 +293,6 @@ def surprise(reachy):
                 duration=0.4,  # Optimisé
                 interpolation_mode=InterpolationMode.MINIMUM_JERK,
             )
-            time.sleep(0.4)
             
             goto(
                 goal_positions={
@@ -299,7 +302,6 @@ def surprise(reachy):
                 duration=0.4,
                 interpolation_mode=InterpolationMode.MINIMUM_JERK,
             )
-            time.sleep(0.4)
         
         # 4. Animation finale ondulante (réduite)
         dur = 1.5  # Réduit de 2 à 1.5
@@ -347,7 +349,6 @@ def celebrate(reachy):
                 duration=0.4,  # Optimisé
                 interpolation_mode=InterpolationMode.MINIMUM_JERK,
             )
-            time.sleep(0.4)
             
             goto(
                 goal_positions={
@@ -357,7 +358,6 @@ def celebrate(reachy):
                 duration=0.4,
                 interpolation_mode=InterpolationMode.MINIMUM_JERK,
             )
-            time.sleep(0.4)
             
         # Animation finale ondulante (réduite)
         dur = 1.5  # Réduit de 2 à 1.5
@@ -415,10 +415,10 @@ def thinking(reachy, used_sounds=None):
             reachy.head.r_antenna.goal_position = p  # Même direction = réflexion
             time.sleep(0.01)
         
-        # Retour à la position neutre
+        # Retour à la position neutre (les antennes glissent d'elles-mêmes,
+        # inutile d'attendre : le bras enchaîne immédiatement)
         reachy.head.l_antenna.goal_position = 0.0
         reachy.head.r_antenna.goal_position = 0.0
-        time.sleep(0.5)  # Réduit de 1.0 à 0.5
         
     # Fonction pour jouer un son aléatoire
     def play_sound():
@@ -447,10 +447,12 @@ def thinking(reachy, used_sounds=None):
         sound_path = os.path.join(sounds_dir, selected_sound)
         logger.info(f'Playing sound: {selected_sound}')
         play_sound_safe(sound_path)
-    
-    # Exécuter en parallèle avec ThreadPoolExecutor
-    run_parallel_tasks(antenna_movement, play_sound)
-    
+
+    # Son en tâche de fond : le bras ne doit pas attendre la fin du MP3
+    # pour commencer à jouer. Échec loggé via le callback.
+    _sound_executor.submit(play_sound).add_done_callback(_log_sound_failure)
+    run_parallel_tasks(antenna_movement)
+
     logger.info('Ending behavior', extra={'behavior': 'thinking'})
 
 def wave_hello(reachy):
@@ -472,7 +474,6 @@ def wave_hello(reachy):
             duration=0.4,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
-        time.sleep(0.4)
         
         goto(
             goal_positions={
@@ -482,7 +483,6 @@ def wave_hello(reachy):
             duration=0.4,
             interpolation_mode=InterpolationMode.MINIMUM_JERK,
         )
-        time.sleep(0.4)
         
     head_home(reachy, duration=1)
     
@@ -508,7 +508,6 @@ def impatient(reachy):
             duration=0.2,
             interpolation_mode=InterpolationMode.LINEAR,
         )
-        time.sleep(0.2)
         
         goto(
             goal_positions={
@@ -518,7 +517,6 @@ def impatient(reachy):
             duration=0.2,
             interpolation_mode=InterpolationMode.LINEAR,
         )
-        time.sleep(0.2)
         
     head_home(reachy, duration=0.5)
     
