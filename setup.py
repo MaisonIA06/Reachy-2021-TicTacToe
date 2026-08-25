@@ -17,18 +17,19 @@ setup(
     description='TicTacToe playground for Reachy robot (SDK 2021)',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='https://https://github.com/MaisonIA06/Reachy-2021-TicTacToe',
+    url='https://github.com/MaisonIA06/Reachy-2021-TicTacToe',
     author='MaisonIA06',
     author_email='wnaiji@maison-intelligence-artificielle.com',
     packages=find_packages(exclude=['tests']),
     python_requires='>=3.8',
     install_requires=[
-        'numpy>=1.19.0',
+        'numpy>=1.19.0,<2',  # NumPy 2.x incompatible avec la stack TFLite
         'zzlog>=1.0.0',
         'reachy-sdk>=0.7.0',  # SDK Reachy 2021
         'opencv-python>=4.5.0',
         'Pillow>=8.0.0',
         'pyquaternion>=0.9.0',
+        'scikit-learn>=1.0.0',  # detect_board.py (KMeans)
     ],
     extras_require={
         'vision': [
@@ -44,6 +45,7 @@ setup(
             'models/*.tflite',
             'models/*.txt',
             'moves/*.npz',
+            'sounds/*.mp3',
             'Q-value.npz',
         ],
     },
@@ -62,6 +64,7 @@ setup(
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Robotics',
     ],
