@@ -19,27 +19,24 @@ def find_board(board_img):
     # Output "lines" is an array containing endpoints of detected line segments
     lines = cv.HoughLinesP(edges, rho, theta, threshold, np.array([]),
                            min_line_length, max_line_gap)
+    if lines is None:
+        raise ValueError('Aucune ligne de grille détectée dans l\'image')
 
     horizontal, vertical = [], []
     for line in lines:
         for x1, y1, x2, y2 in line:
-            # Eviter la division par zéro
             dx = x2 - x1
             dy = y2 - y1
 
-            #Ignorer les lignes de longueur nulle
+            # Lignes parfaitement verticales (dx=0) ou horizontales (dy=0)
+            # ignorées : le classement par pente ci-dessous ne sait pas les
+            # représenter. Limite connue de ce module (inutilisé par le jeu,
+            # les cases viennent de config.py).
             if dx == 0 or dy == 0:
                 continue
 
-            #Cas d'une ligne verticale parfaite (dx=0)
-            if dx == 0:
-                #Ligne verticale : utiliser une pente trés grande
-                a = float('inf')
-                b = x1 #pour calculer l'ordonnée à l'origine
-                vertical.append((a, b))
-            else:
-                a = dy / dx
-                b = y1 - a * x1
+            a = dy / dx
+            b = y1 - a * x1
 
             if np.abs(a) < 0.1:
                 horizontal.append((a, b))

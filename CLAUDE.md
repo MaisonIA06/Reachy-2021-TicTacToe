@@ -75,7 +75,7 @@ Tous les scripts robot prennent `--host`.
 ### Tests (sans robot)
 ```bash
 pip install -r requirements-dev.txt
-pytest          # 121 tests, < 1 s
+pytest          # suite complète, < 1 s
 ```
 La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, conventions pièces/joueurs, format des mouvements `.npz` (poses 0-d pour `goto_position` vs trajectoires 1-d à 100 Hz pour `play_trajectory`). `tests/conftest.py` injecte des **stubs inconditionnels** de `reachy_sdk`, `tflite_runtime`, `sklearn` et `zzlog` dans `sys.modules` — aucun robot ni modèle réel n'est sollicité, même sur le NUC. **CI GitHub Actions** (`.github/workflows/ci.yml`) : la suite tourne à chaque push/PR ; le CI doit être vert avant d'enchaîner. Les tests matériels restent les scripts ci-dessus, exécutés contre le robot.
 
@@ -86,7 +86,7 @@ La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, c
 2. Boucle adaptative : `analyze_board()` est appelée toutes les 100 ms (plateau changeant) ou 500 ms (plateau stable depuis ≥ 3 analyses).
 3. Au tour humain : `has_human_played()` détecte un nouveau **cylindre** déposé.
 4. Au tour robot : `choose_next_action()` (Q-learning) → `play()` → `play_pawn(grab_index, box_index)`.
-5. Détection de triche/incohérence avec **double vérification** (`shuffle_board()` si confirmée).
+5. Détection de triche/incohérence (ajout illégal, retrait ou **déplacement** d'une pièce) avec **double vérification** — une analyse non concluante (`None`) ne vaut pas confirmation. Si confirmée : `shuffle_board()` et la partie retourne `'aborted'`.
 6. Fin de partie → célébration/défaite/égalité, vérification température (`need_cooldown()` → 50 °C, sortie à 45 °C).
 
 ### Convention pièces (⚠️ inversion vs code original Pollen 2019)

@@ -34,7 +34,8 @@ def run_game_loop(tictactoe_playground):
         tictactoe_playground: Instance de TictactoePlayground
         
     Returns:
-        str: Le gagnant ('robot', 'human', ou 'nobody')
+        str: Le gagnant ('robot', 'human', 'nobody'), ou 'aborted' si la
+             partie a été annulée après une triche/incohérence confirmée.
     """
     logger.info('Game start')
 
@@ -133,15 +134,18 @@ def run_game_loop(tictactoe_playground):
         # Détection de triche ou incohérence
         if (tictactoe_playground.incoherent_board_detected(board) or
                 tictactoe_playground.cheating_detected(board, last_board, reachy_turn)):
-            # Double vérification
+            # Double vérification. Une analyse non concluante (None :
+            # image bruitée) ne vaut PAS confirmation — on revérifie
+            # au prochain tour, comme pour une fausse détection.
             double_check_board = tictactoe_playground.analyze_board()
-            if double_check_board is not None and np.any(double_check_board != board):
-                # Fausse détection, on revérifie au prochain tour
+            if double_check_board is None or np.any(double_check_board != board):
                 continue
 
             # Quelque chose de bizarre s'est vraiment passé
+            tictactoe_playground.display_board(board, winner='aborted')
             tictactoe_playground.shuffle_board()
-            break
+            logger.info('Game aborted after confirmed cheating')
+            return 'aborted'
 
         # Tour de Reachy - choisir et jouer une action
         if (not tictactoe_playground.is_final(board)) and reachy_turn:
@@ -179,10 +183,9 @@ def run_game_loop(tictactoe_playground):
 
             return winner
 
-    logger.info('Game end')
 
-
-if __name__ == '__main__':
+def main():
+    """Point d'entrée console (voir setup.py : reachy-tictactoe)."""
     import argparse
     from datetime import datetime
     from glob import glob
@@ -221,6 +224,7 @@ if __name__ == '__main__':
     )
 
     # Boucle principale - jouer des parties en continu
+    tictactoe_playground = None
     try:
         with TictactoePlayground(host=args.host) as tictactoe_playground:
             tictactoe_playground.setup()
@@ -261,7 +265,6 @@ if __name__ == '__main__':
                         exc_info=True
                     )
                     # Attendre un peu avant de relancer
-                    import time
                     time.sleep(5)
                     
     except KeyboardInterrupt:
@@ -275,7 +278,12 @@ if __name__ == '__main__':
     finally:
         logger.info('Application shutdown')
         # Fermer la fenêtre d'affichage si elle est ouverte
-        try:
-            tictactoe_playground.close_display()
-        except Exception as e:
-            logger.debug(f'Could not close display: {e}')
+        if tictactoe_playground is not None:
+            try:
+                tictactoe_playground.close_display()
+            except Exception as e:
+                logger.debug(f'Could not close display: {e}')
+
+
+if __name__ == '__main__':
+    main()

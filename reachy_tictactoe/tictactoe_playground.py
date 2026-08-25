@@ -23,6 +23,31 @@ from .config import GRIPPER_OPEN, GRIPPER_CLOSED
 logger = logging.getLogger('reachy.tictactoe')
 
 
+# Couleurs BGR du statut, cohérentes avec le dessin des pièces :
+# Reachy joue les X (cubes) en rouge, l'humain les O (cylindres) en bleu.
+ROBOT_COLOR = (0, 0, 255)
+HUMAN_COLOR = (255, 0, 0)
+DRAW_COLOR = (0, 128, 0)
+NEUTRAL_COLOR = (0, 0, 0)
+
+
+def game_status_text(current_player=None, winner=None):
+    """Retourne (texte, couleur BGR) du bandeau de statut du plateau."""
+    if winner:
+        if winner == 'robot':
+            return "Reachy a gagne !", ROBOT_COLOR
+        if winner == 'human':
+            return "Vous avez gagne !", HUMAN_COLOR
+        if winner == 'nobody':
+            return "Egalite !", DRAW_COLOR
+        return "Partie annulee !", NEUTRAL_COLOR
+    if current_player == 'robot':
+        return "Tour de Reachy (X)", ROBOT_COLOR
+    if current_player == 'human':
+        return "Votre tour (O)", HUMAN_COLOR
+    return "Partie en cours", NEUTRAL_COLOR
+
+
 class TictactoePlayground(object):
     """Classe principale pour gérer le jeu de TicTacToe avec Reachy"""
     
@@ -86,52 +111,28 @@ class TictactoePlayground(object):
                 center_y = y + cell_size // 2
                 
                 if piece_id == piece2id['cube']:  # Robot (X)
-                    # Dessiner un X rouge
                     thickness = 5
-                    cv.line(img, 
-                           (x + 20, y + 20), 
-                           (x + cell_size - 20, y + cell_size - 20), 
-                           (0, 0, 255), thickness)
-                    cv.line(img, 
-                           (x + cell_size - 20, y + 20), 
-                           (x + 20, y + cell_size - 20), 
-                           (0, 0, 255), thickness)
-                    # Texte "X"
+                    cv.line(img,
+                           (x + 20, y + 20),
+                           (x + cell_size - 20, y + cell_size - 20),
+                           ROBOT_COLOR, thickness)
+                    cv.line(img,
+                           (x + cell_size - 20, y + 20),
+                           (x + 20, y + cell_size - 20),
+                           ROBOT_COLOR, thickness)
                     cv.putText(img, 'X', (center_x - 15, center_y + 10),
-                              cv.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
-                    
+                              cv.FONT_HERSHEY_SIMPLEX, 1.5, ROBOT_COLOR, 3)
+
                 elif piece_id == piece2id['cylinder']:  # Humain (O)
-                    # Dessiner un cercle bleu
                     radius = cell_size // 2 - 20
-                    cv.circle(img, (center_x, center_y), radius, (255, 0, 0), 5)
-                    # Texte "O"
+                    cv.circle(img, (center_x, center_y), radius, HUMAN_COLOR, 5)
                     cv.putText(img, 'O', (center_x - 15, center_y + 10),
-                              cv.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 0), 3)
+                              cv.FONT_HERSHEY_SIMPLEX, 1.5, HUMAN_COLOR, 3)
         
         # Afficher le statut du jeu
         status_y = board_size + 2 * margin + 30
-        
-        if winner:
-            if winner == 'robot':
-                status_text = "Reachy a gagne !"
-                color = (255, 0, 0)  # Bleu
-            elif winner == 'human':
-                status_text = "Vous avez gagne !"
-                color = (0, 0, 255)  # Rouge
-            else:
-                status_text = "Egalite !"
-                color = (0, 128, 0)  # Vert
-        elif current_player:
-            if current_player == 'robot':
-                status_text = "Tour de Reachy (O)"
-                color = (255, 0, 0)  # Bleu
-            else:
-                status_text = "Votre tour (X)"
-                color = (0, 0, 255)  # Rouge
-        else:
-            status_text = "Partie en cours"
-            color = (0, 0, 0)  # Noir
-        
+        status_text, color = game_status_text(current_player, winner)
+
         # Afficher le texte de statut
         cv.putText(img, status_text, (margin, status_y),
                   cv.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
@@ -367,12 +368,23 @@ class TictactoePlayground(object):
         
     def cheating_detected(self, board, last_board, reachy_turn):
         """Détecte si le joueur humain a triché"""
-        delta = board - last_board
-        
+        # Delta signé (les plateaux sont en uint8) : indispensable pour
+        # repérer une pièce retirée ou déplacée (delta négatif).
+        delta = board.astype(np.int16) - last_board.astype(np.int16)
+
         # Rien n'a changé
         if np.all(delta == 0):
             return False
-            
+
+        # Une pièce a disparu d'une case : retrait ou déplacement,
+        # ce n'est jamais un coup légal.
+        if np.any(delta < 0):
+            logger.warning('Piece removed or moved', extra={
+                'last_board': last_board,
+                'current_board': board,
+            })
+            return True
+
         # Un seul cube a été ajouté
         if len(np.where(delta == piece2id['cube'])[0]) == 1:
             # Si l'humain a ajouté un cube, c'est de la triche (cube=robot)
@@ -465,7 +477,10 @@ class TictactoePlayground(object):
                 if a != 8:
                     break
                     
-        elif np.sum(board) == piece2id['cylinder']:  # Humain a joué en premier (cylinder=human)
+        elif (np.sum(board == piece2id['cylinder']) == 1
+                and np.sum(board == piece2id['cube']) == 0):
+            # L'humain a ouvert la partie (un cylindre, aucun cube) :
+            # éviter la case 9 comme réponse d'ouverture.
             a, _ = actions[0]
             if a == 8:
                 i = 1
@@ -505,7 +520,7 @@ class TictactoePlayground(object):
                 'board-before': actual_board,
                 'board-after': board,
                 'action': action + 1,
-                'pawn_played': self.pawn_played + 1,
+                'pawn_played': self.pawn_played,
             },
         )
         
