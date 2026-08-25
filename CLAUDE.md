@@ -70,7 +70,14 @@ python scripts/utils/monitor_temps.py --host localhost --joint r_wrist_roll
 python scripts/utils/release_arm.py --host localhost
 ```
 
-Tous les scripts robot prennent `--host`. Pas de suite de tests pytest configurée — le « test » consiste à exécuter les scripts ci-dessus contre le robot.
+Tous les scripts robot prennent `--host`.
+
+### Tests (sans robot)
+```bash
+pip install -r requirements-dev.txt
+pytest          # 121 tests, < 1 s
+```
+La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, conventions pièces/joueurs, format des mouvements `.npz` (poses 0-d pour `goto_position` vs trajectoires 1-d à 100 Hz pour `play_trajectory`). `tests/conftest.py` injecte des **stubs inconditionnels** de `reachy_sdk`, `tflite_runtime`, `sklearn` et `zzlog` dans `sys.modules` — aucun robot ni modèle réel n'est sollicité, même sur le NUC. **CI GitHub Actions** (`.github/workflows/ci.yml`) : la suite tourne à chaque push/PR ; le CI doit être vert avant d'enchaîner. Les tests matériels restent les scripts ci-dessus, exécutés contre le robot.
 
 ## Architecture
 
