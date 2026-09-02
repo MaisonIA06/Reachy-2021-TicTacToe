@@ -338,10 +338,35 @@ class MoveTester:
             print("✅ Mouvement exécuté avec succès !")
         else:
             print("❌ Échec de l'exécution")
-        
+
+        # Après une dépose isolée, le bras finit étendu AU-DESSUS du plateau :
+        # couper le couple ici le ferait s'affaisser en plein milieu du plateau.
+        # On enchaîne donc le retrait back_N correspondant avant de rendre la main.
+        if success and name.split('_')[0] == 'put':
+            case = name.split('_')[1]
+            back_name = f'back_{case}_upright'
+            back_path = os.path.join(moves_dir, f'{back_name}.npz')
+            back_data = self.load_move(back_path) if os.path.exists(back_path) else None
+            if back_data is None:
+                print(f"   ⚠️  {back_name} introuvable : le bras reste étendu "
+                      f"au-dessus du plateau. Déplacez-le à la main AVANT que "
+                      f"les moteurs soient relâchés.")
+            else:
+                print(f"↩️  Retrait automatique via {back_name} "
+                      f"(évite l'affaissement sur le plateau)...")
+                # Gripper filtré : règle CLAUDE.md, un pion peut être tenu.
+                back_data = {
+                    joint: valeurs for joint, valeurs in back_data.items()
+                    if 'gripper' not in joint.lower()
+                }
+                if self.is_trajectory(back_data):
+                    self.play_trajectory(back_data)
+                else:
+                    self.play_position(back_data)
+
         print("=" * 70)
         print()
-        
+
         return success
     
     def list_available_moves(self, moves_dir='reachy_tictactoe/moves'):

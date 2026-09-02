@@ -4,6 +4,95 @@ Ce guide vous accompagne pas à pas pour ré-enregistrer tous les mouvements du 
 
 ---
 
+## ⚡ Méthode de travail — à lire AVANT de commencer
+
+Deux défauts rendent un enregistrement inutilisable **sans que rien ne se voie au moment où on le fait**. Chacun a déjà coûté une session complète. La méthode ci-dessous existe pour les attraper tout de suite.
+
+### Les deux pièges
+
+| Piège | Ce qu'on voit en enregistrant | Ce qui se passe au rejeu |
+|---|---|---|
+| **Flux de positions gelé** | Rien : le bras bouge normalement | Le serveur renvoyait la même valeur en boucle. Les fichiers sont figés et **identiques entre eux** ; le bras ne bouge plus |
+| **Dépassement des butées** | Rien : en compliant, on pousse le bras au-delà des limites **sans le sentir** | Le contrôleur **écrête** la consigne : le bras s'arrête court et rate la case |
+
+Un troisième défaut, lui, se voit — mais trop tard : un geste qui **descend trop tôt** puis se déplace horizontalement au ras du plateau **balaye les pièces** en cours de partie.
+
+### Le montage : deux terminaux
+
+**Terminal 1 — surveillance sonore** (à lancer en premier, tourne pendant toute la session) :
+
+```bash
+python scripts/moves/watch_recording.py --host localhost
+```
+
+Il ne bouge jamais le robot. Il écoute et prévient **en direct**, avec deux sons distincts :
+
+- 🔊 **« Joueur déloyal »** → un joint est **hors limites**. Le geste sera écrêté : repliez le coude, réduisez la rotation du bras, et **recommencez la prise en cours**.
+- 🔊 **« Observe »** → le bras se déplace **horizontalement trop près du plateau**. C'est le balayage : **remontez** avant de continuer. La descente verticale finale dans la case ne déclenche pas l'alarme.
+
+Si l'alarme sonne en continu, le seuil est trop strict pour la position visée — desserrez-le plutôt que de vous acharner : `--z-min -0.34`.
+
+**Terminal 2 — enregistrement** :
+
+```bash
+python scripts/moves/record_moves.py --interactive --host localhost
+```
+
+### Le geste à viser pour les `put_N`
+
+C'est **la** règle qui évite le balayage :
+
+1. **Partir haut**, à la hauteur de `lift` ;
+2. **Transiter haut** jusqu'au-dessus de la case — ne pas descendre pendant le déplacement horizontal ;
+3. **Descendre verticalement** dans la case seulement une fois arrivé au-dessus.
+
+Viser au moins **3 cm de garde** entre la hauteur de transit et la hauteur de dépose.
+
+### Valider APRÈS CHAQUE mouvement, pas à la fin
+
+```bash
+# Un seul mouvement, juste après l'avoir enregistré (aucun robot requis)
+python scripts/moves/validate_moves.py --name put_5
+
+# Tout le dossier, avec le profil de hauteur mesuré par cinématique directe
+python scripts/moves/validate_moves.py --host localhost
+```
+
+Le rapport sépare deux niveaux :
+
+- ❌ **BLOQUANT** (fichier figé, doublon anormal, NaN, trajectoire trop courte) → **à refaire immédiatement**, le fichier est inutilisable. Code de sortie 1.
+- ⚠️ **AVERTISSEMENT** (dépassement de butée, départ éloigné de `lift`) → rejouable mais dégradé ; c'est le rendu réel sur le robot qui tranche.
+
+Le profil de hauteur (`--host`) signale `⚠️ rase le plateau` quand la garde en transit est inférieure à 3 cm.
+
+### Puis seulement, tester sur le robot
+
+```bash
+python scripts/moves/test_recorded_moves.py --name put_5 --host localhost   # une dépose
+python scripts/moves/test_recorded_moves.py --sequence --host localhost     # les 9 cycles complets
+```
+
+Le mode `--sequence` reproduit exactement l'enchaînement du jeu (`grab_1` → `lift` → `put_N` → `back_N` → retour) et signale toute cible non atteinte — c'est le vrai juge de paix avant une partie.
+
+### Limites articulaires du bras droit (degrés)
+
+Référence rapide ; `arm_yaw` est le piège principal.
+
+| Joint | Min | Max |
+|---|---|---|
+| `r_shoulder_pitch` | −150 | 90 |
+| `r_shoulder_roll` | −180 | **10** |
+| **`r_arm_yaw`** | **−90** | **90** |
+| `r_elbow_pitch` | −125 | 0 |
+| `r_forearm_yaw` | −100 | 100 |
+| `r_wrist_pitch` | −45 | 45 |
+| `r_wrist_roll` | −35 | 54,4 |
+| `r_gripper` | −68,8 | 20 |
+
+Conséquence géométrique : une case qui exige `arm_yaw` > 90° est **physiquement injouable** par le bras droit — aucun réenregistrement n'y changera rien, il faut déplacer le plateau vers la droite du robot.
+
+---
+
 ## 📍 Récapitulatif : D'où → Où (chaque mouvement)
 
 | Mouvement | **Départ (FROM)** | **Arrivée (TO)** |
@@ -44,7 +133,7 @@ Ces positions sont définies directement dans le code. Mesurez-les et notez-les 
 
 ```bash
 # Démarrer le script en mode interactif
-python scripts/record_moves.py --interactive --host localhost
+python scripts/moves/record_moves.py --interactive --host localhost
 ```
 
 **Mouvements à mesurer manuellement :**
@@ -71,14 +160,14 @@ python scripts/record_moves.py --interactive --host localhost
 
 ```bash
 # Mode interactif recommandé
-python scripts/record_moves.py --interactive
+python scripts/moves/record_moves.py --interactive
 
 # Ou individuellement
-python scripts/record_moves.py --name grab_1 --type position
-python scripts/record_moves.py --name grab_2 --type position
-python scripts/record_moves.py --name grab_3 --type position
-python scripts/record_moves.py --name grab_4 --type position
-python scripts/record_moves.py --name grab_5 --type position
+python scripts/moves/record_moves.py --name grab_1 --type position
+python scripts/moves/record_moves.py --name grab_2 --type position
+python scripts/moves/record_moves.py --name grab_3 --type position
+python scripts/moves/record_moves.py --name grab_4 --type position
+python scripts/moves/record_moves.py --name grab_5 --type position
 ```
 
 **Pour chaque grab :**
@@ -103,7 +192,7 @@ python scripts/record_moves.py --name grab_5 --type position
 **Enregistrement :**
 
 ```bash
-python scripts/record_moves.py --name lift --type position
+python scripts/moves/record_moves.py --name lift --type position
 ```
 
 **Instructions :**
@@ -135,11 +224,11 @@ python scripts/record_moves.py --name lift --type position
 
 ```bash
 # Mode interactif recommandé
-python scripts/record_moves.py --interactive
+python scripts/moves/record_moves.py --interactive
 
 # Ou individuellement
-python scripts/record_moves.py --name put_1 --type trajectory --duration 2.5
-python scripts/record_moves.py --name put_2 --type trajectory --duration 2.5
+python scripts/moves/record_moves.py --name put_1 --type trajectory --duration 2.5
+python scripts/moves/record_moves.py --name put_2 --type trajectory --duration 2.5
 # ... et ainsi de suite jusqu'à put_9
 ```
 
@@ -170,8 +259,8 @@ python scripts/record_moves.py --name put_2 --type trajectory --duration 2.5
 **Enregistrement :**
 
 ```bash
-python scripts/record_moves.py --name back_1_upright --type position
-python scripts/record_moves.py --name back_2_upright --type position
+python scripts/moves/record_moves.py --name back_1_upright --type position
+python scripts/moves/record_moves.py --name back_2_upright --type position
 # ... jusqu'à back_9_upright
 ```
 
@@ -202,7 +291,7 @@ Points d'attention :
 **D'où → Où :** **Depuis** position de base ou repos **→** petit geste expressif **→** retour (trajectoire complète ~2 s).
 
 ```bash
-python scripts/record_moves.py --name my-turn --type trajectory --duration 2.0
+python scripts/moves/record_moves.py --name my-turn --type trajectory --duration 2.0
 ```
 
 - Animation expressive pour indiquer que c'est le tour du robot
@@ -214,7 +303,7 @@ python scripts/record_moves.py --name my-turn --type trajectory --duration 2.0
 **D'où → Où :** **Depuis** position de base ou repos **→** geste invitant **→** retour (trajectoire complète ~2 s). Différent de my-turn.
 
 ```bash
-python scripts/record_moves.py --name your-turn --type trajectory --duration 2.0
+python scripts/moves/record_moves.py --name your-turn --type trajectory --duration 2.0
 ```
 
 - Animation pour indiquer que c'est le tour de l'humain
@@ -229,21 +318,21 @@ python scripts/record_moves.py --name your-turn --type trajectory --duration 2.0
 
 ```bash
 # Tester un mouvement spécifique
-python scripts/test_recorded_moves.py --name grab_1 --host localhost
+python scripts/moves/test_recorded_moves.py --name grab_1 --host localhost
 ```
 
 ### Test interactif (recommandé)
 
 ```bash
 # Mode interactif pour tester à la demande
-python scripts/test_recorded_moves.py --interactive --host localhost
+python scripts/moves/test_recorded_moves.py --interactive --host localhost
 ```
 
 ### Test complet
 
 ```bash
 # Tester TOUS les mouvements d'un coup (attention !)
-python scripts/test_recorded_moves.py --all --host localhost
+python scripts/moves/test_recorded_moves.py --all --host localhost
 ```
 
 ---

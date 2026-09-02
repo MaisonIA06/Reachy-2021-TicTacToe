@@ -42,12 +42,19 @@ python scripts/utils/show_config.py --set-board LEFT RIGHT TOP BOTTOM
 
 ### Mouvements (à refaire à chaque déplacement du plateau)
 ```bash
-# Enregistrer (mode compliant). Voir GUIDE_REENREGISTREMENT_MOUVEMENTS.md et CHECKLIST_MOUVEMENTS.txt
+# 1) Surveillance sonore, dans un 2e terminal, PENDANT tout l'enregistrement
+#    « Joueur déloyal » = hors butée ; « Observe » = trop bas, risque de balayage
+python scripts/moves/watch_recording.py --host localhost
+# 2) Enregistrer (mode compliant). Voir GUIDE_REENREGISTREMENT_MOUVEMENTS.md (§ Méthode de travail)
 python scripts/moves/record_moves.py --interactive --host localhost
 python scripts/moves/record_moves.py --name grab_1 --type position --host localhost
 python scripts/moves/record_moves.py --name put_1 --type trajectory --duration 2.5 --host localhost
-# Rejouer
+# 3) Valider APRÈS CHAQUE mouvement (sans robot ; --host ajoute le profil de hauteur)
+python scripts/moves/validate_moves.py --name put_1
+python scripts/moves/validate_moves.py --host localhost
+# 4) Rejouer
 python scripts/moves/test_recorded_moves.py --name grab_1 --host localhost
+python scripts/moves/test_recorded_moves.py --sequence --host localhost   # les 9 cycles du jeu
 python scripts/moves/test_recorded_moves.py --all --host localhost
 ```
 
@@ -100,6 +107,7 @@ La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, c
 - `vision.py` — wrapper `TFLiteClassifier` (CPU uniquement, pas EdgeTPU). `get_board_configuration()` classe les 9 cases via `ttt-boxes.tflite` ; `is_board_valid()` filtre les images bruitées via `ttt-valid-board.tflite`. Si un modèle est compilé EdgeTPU, le wrapper lève une erreur avec instructions.
 - `rl_agent.py` — charge `Q-value.npz` (table Q précalculée) et renvoie les actions triées par valeur.
 - `motors.py` — `safe_turn_on(reachy, part)` : activation du couple **sans à-coup** (source unique, importée par le jeu et les scripts `moves/`). Voir « Pièges ».
+- `moves_validation.py` — validation des `.npz` (fonctions pures, sans robot) : `JOINT_LIMITS` (butées URDF, **source unique**), `limit_violations()`, `is_frozen()`, `unexpected_duplicates()`, `amplitude()`. Utilisé par `scripts/moves/validate_moves.py`, `watch_recording.py` et la suite de tests.
 - `config.py` — **source unique** pour calibration (`BOARD_POSITION`, `BOARD_CASES`), constantes gripper (`GRIPPER_OPEN=-45`, `GRIPPER_CLOSED=-6`, en degrés, plus négatif = plus ouvert), seuils de détection, chemins modèles. `save_calibration()` réécrit le fichier via regex.
 - `moves/__init__.py` — charge dynamiquement tous les `*.npz` du dossier en un dict `moves`. Définit `rest_pos` et `base_pos` (positions cibles joints en degrés).
 - `game_launcher.py` — orchestration, gestion des relances après exception (sleep 5 s puis nouvelle partie).
@@ -128,7 +136,8 @@ MP3 dans `reachy_tictactoe/sounds/`, joués via `subprocess.run(['mpg123', '-a',
 - **Joints en degrés** dans le SDK 2021 (pas radians). Antennes, bras, gripper.
 - **Activation du couple : jamais `reachy.turn_on()` brut** — toujours `safe_turn_on()` (`reachy_tictactoe/motors.py`). Au `turn_on`, le registre `goal_position` contient encore la consigne du mouvement précédent et le moteur saute violemment vers cette vieille cible (« coup violent au début » historique). `safe_turn_on` synchronise `goal_position = present_position` (gripper **exclu** : `close_gripper()` sur-commande volontairement la consigne pour serrer — resynchroniser lâcherait le pion), attend 0,05 s (le flux de commandes ~100 Hz est asynchrone vs le RPC `turn_on`), puis active. Exception assumée : les scripts `calibration/` et `training/` (tête seule, sans dépendance au package) gardent `turn_on('head')` brut.
 - **Trajectoires 100 Hz : pré-positionnement intégré** — `play_trajectory()` fait d'abord un `goto` doux (0,5 s) vers le premier point si le bras en est à plus de 3° : la première consigne streamée serait sinon un échelon brutal. Ne pas ré-ajouter de `goto` vers le premier point chez les appelants.
-- **Limites articulaires (⚠️ enregistrements)** : en compliant on peut pousser le bras **au-delà des butées logicielles** à la main — l'encodeur lit la vraie position, mais **le contrôleur écrête au rejeu** et le bras rate sa cible en silence. Toujours valider un `.npz` contre les limites URDF du bras droit (degrés) : shoulder_pitch [−150, 90], shoulder_roll [−180, 10], **arm_yaw [−90, 90]** (le piège principal), elbow_pitch [−125, 0], forearm_yaw [−100, 100], wrist_pitch [−45, 45], wrist_roll [−35, 54.4], gripper [−68.8, 20]. Conséquence géométrique : les cases du plateau doivent rester **à droite de l'axe du robot** (y ≤ −0,03 m, repère x=avant/y=gauche), sinon `arm_yaw` > 90° est nécessaire et la case est physiquement injouable.
+- **Limites articulaires (⚠️ enregistrements)** : en compliant on peut pousser le bras **au-delà des butées logicielles** à la main — l'encodeur lit la vraie position, mais **le contrôleur écrête au rejeu** et le bras rate sa cible en silence. Valeurs dans `moves_validation.JOINT_LIMITS` (source unique, degrés) : shoulder_pitch [−150, 90], shoulder_roll [−180, 10], **arm_yaw [−90, 90]** (le piège principal), elbow_pitch [−125, 0], forearm_yaw [−100, 100], wrist_pitch [−45, 45], wrist_roll [−35, 54.4], gripper [−68.8, 20]. Conséquence géométrique : les cases du plateau doivent rester **à droite de l'axe du robot** (y ≤ −0,03 m, repère x=avant/y=gauche), sinon `arm_yaw` > 90° est nécessaire et la case est physiquement injouable.
+- **Enregistrer un mouvement : toujours surveiller + valider** — deux défauts sont invisibles au moment de l'enregistrement et ont chacun coûté une session entière : le **flux de positions gelé** (fichiers figés et identiques entre eux) et le **dépassement de butée**. Un troisième, la descente trop précoce, fait **balayer le plateau** en transit. Procédure : `watch_recording.py` en fond (alertes sonores en direct) + `validate_moves.py --name <move>` après **chaque** capture, avant de passer au suivant. Détail dans `GUIDE_REENREGISTREMENT_MOUVEMENTS.md` (§ Méthode de travail). Geste `put_N` correct : rester haut pendant tout le transit, descendre **verticalement** seulement une fois au-dessus de la case (≥ 3 cm de garde).
 - **Activation gripper** : `self.reachy.r_arm.r_gripper.compliant = False` est appelé explicitement et vérifié dans `play_pawn` ; ne pas supposer qu'il reste actif.
 - **Fermeture pince** : `play_pawn` ferme via `close_gripper()`, qui **force** `goal_position` à `GRIPPER_CLOSED` avec `torque_limit=100`, puis lit `present_load` (alerte loggée si `< 80` ⇒ prise probablement à vide). ⚠️ Ne pas remplacer par une fermeture progressive à seuil de charge bas : les pics transitoires de démarrage du moteur déclenchent la détection trop tôt et la pince s'arrête quasi ouverte sans attraper le cube (régression observée et corrigée).
 - **Modèles TFLite** : doivent être compilés **CPU**, pas EdgeTPU. Une erreur claire est levée sinon (`vision.py`).
