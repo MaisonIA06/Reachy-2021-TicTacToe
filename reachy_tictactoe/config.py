@@ -27,10 +27,10 @@ from pathlib import Path
 #     python scripts/calibrate_board.py --host localhost
 
 BOARD_POSITION = {
-    'left_x': 115,      # Bord gauche du plateau dans l'image
-    'right_x': 469,     # Bord droit du plateau dans l'image  
-    'top_y': 255,       # Bord haut du plateau dans l'image
-    'bottom_y': 594,    # Bord bas du plateau dans l'image
+    'left_x': 83,      # Bord gauche du plateau dans l'image
+    'right_x': 443,     # Bord droit du plateau dans l'image  
+    'top_y': 266,       # Bord haut du plateau dans l'image
+    'bottom_y': 572,    # Bord bas du plateau dans l'image
 }
 
 
@@ -52,9 +52,9 @@ BOARD_POSITION = {
 #     (2,0) | (2,1) | (2,2)
 
 BOARD_CASES = np.array((
-    ((35, 124, 14, 92), (134, 233, 15, 96), (234, 314, 19, 104)),  # Ligne 0
-    ((20, 119, 100, 195), (134, 233, 103, 200), (241, 333, 108, 201)),  # Ligne 1
-    ((9, 114, 201, 317), (128, 238, 205, 316), (247, 347, 212, 312))  # Ligne 2
+    ((25, 115, 14, 87), (122, 224, 11, 88), (221, 315, 9, 79)),  # Ligne 0
+    ((13, 117, 98, 198), (123, 231, 93, 195), (230, 335, 89, 184)),  # Ligne 1
+    ((9, 116, 201, 305), (121, 248, 197, 299), (248, 352, 190, 299))  # Ligne 2
 ))
 
 # Note: Ces valeurs par défaut sont des estimations. 
