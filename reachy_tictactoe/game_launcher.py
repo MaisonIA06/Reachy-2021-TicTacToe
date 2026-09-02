@@ -273,6 +273,12 @@ class GameSession:
         self._listeners = []
 
     @property
+    def playground(self):
+        """Le playground piloté (l'interface web y accède pour les
+        actions hors partie : vérification des mouvements, calibration)."""
+        return self._playground
+
+    @property
     def state(self) -> GameState:
         with self._lock:
             return self._state

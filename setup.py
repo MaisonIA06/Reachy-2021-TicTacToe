@@ -29,6 +29,9 @@ setup(
         'opencv-python>=4.5.0',
         'Pillow>=8.0.0',
         'pyquaternion>=0.9.0',
+        # Interface web de pilotage (python -m reachy_tictactoe.webapp)
+        'fastapi>=0.110',
+        'uvicorn>=0.27',
     ],
     extras_require={
         'vision': [
@@ -46,12 +49,16 @@ setup(
             'moves/*.npz',
             'sounds/*.mp3',
             'Q-value.npz',
+            # Page et assets de l'interface web : sans eux, StaticFiles
+            # échoue au démarrage après un pip install non éditable.
+            'webapp/static/*',
         ],
     },
     include_package_data=True,
     entry_points={
         'console_scripts': [
             'reachy-tictactoe=reachy_tictactoe.game_launcher:main',
+            'reachy-tictactoe-web=reachy_tictactoe.webapp.__main__:main',
         ],
     },
     classifiers=[

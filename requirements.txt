@@ -13,6 +13,10 @@ tflite-runtime>=2.5.0
 # Math and geometry
 pyquaternion>=0.9.0
 
+# Interface web de pilotage (python -m reachy_tictactoe.webapp)
+fastapi>=0.110
+uvicorn>=0.27
+
 # Optional: Development tools
 # pytest>=6.0.0
 # flake8>=3.8.0

@@ -3,6 +3,7 @@ TicTacToe Playground adapté pour Reachy SDK 2021
 Ce module gère la logique du jeu et le contrôle du robot Reachy V1
 """
 import numpy as np
+import cv2 as cv
 import logging
 import time
 import os
@@ -96,19 +97,41 @@ class TictactoePlayground(object):
         self.used_thinking_sounds = set()
         # Thread de préchargement
         self._preload_thread = None
-    
+        # Fenêtre OpenCV disponible ? Passe à False au premier échec
+        # (pas d'écran, ou appel depuis un thread de fond).
+        self._display_available = True
+
+
     def display_board(self, board, current_player=None, winner=None):
         """
         Affiche le plateau de jeu à l'écran pour que plusieurs personnes puissent voir
-        
+
+        Fenêtre de CONFORT : elle ne doit jamais interrompre une partie. Elle
+        se désactive d'elle-même au premier échec — sans écran
+        (serveur lancé en SSH, opencv-headless) highgui lève `cv2.error`, et
+        depuis un thread de fond (interface web) il n'est pas supporté.
+
         Args:
             board: Array numpy (9 éléments) représentant le plateau
             current_player: 'robot' ou 'human' - joueur actuel
             winner: 'robot', 'human', 'nobody' ou None - gagnant si partie terminée
         """
-        import cv2 as cv
+        if not self._display_available:
+            return
+        try:
+            self._draw_board(board, current_player, winner)
+        except Exception as e:
+            self._display_available = False
+            logger.warning(
+                f'Affichage OpenCV désactivé ({e}) — la partie continue '
+                f'sans fenêtre (pas d\'écran, ou thread de fond).'
+            )
+
+    def _draw_board(self, board, current_player=None, winner=None):
+        """Dessine et affiche la fenêtre (voir ``display_board``)."""
         import numpy as np
-        
+
+
         # Dimensions de la fenêtre
         cell_size = 150
         board_size = cell_size * 3
@@ -332,6 +355,46 @@ class TictactoePlayground(object):
             self._looking_at_board = False
             self._failed_analyses = 0
         return None
+
+    def run_moves_check(self, on_progress=None):
+        """Parcourt les 9 cases À VIDE pour vérifier le positionnement.
+
+        Rejoue l'enchaînement exact d'un coup (``grab_1`` → ``lift`` →
+        ``put_N`` → ``back_N``) sans pion et sans toucher au gripper : sert
+        à contrôler que le bras atteint encore chaque case après un
+        déplacement du robot ou du plateau. Termine bras au repos et
+        moteurs relâchés, comme une partie.
+
+        Args:
+            on_progress: callable optionnel ``on_progress(case, total)``
+                appelé avant chaque case, pour l'interface.
+        """
+        logger.info('Moves check: parcours des 9 cases')
+        # Le bras sort d'un rest() : il est compliant. Sans réactiver le
+        # couple, les 9 cases seraient « parcourues » sans que rien ne bouge.
+        self.safe_turn_on('r_arm')
+        try:
+            for case in range(1, 10):
+                if on_progress is not None:
+                    on_progress(case, 9)
+                logger.info(f'Moves check: case {case}/9')
+                # Passer par la base comme le fait play_pawn : le chemin
+                # direct rest_pos -> grab_1 n'est jamais exercé en partie et
+                # peut balayer le plateau.
+                self.goto_base_position()
+                self.goto_position(moves['grab_1'], duration=1.0,
+                                   filter_gripper=True)
+                self.goto_position(moves['lift'], duration=1.0,
+                                   filter_gripper=True)
+                self.play_trajectory(moves[f'put_{case}_smooth_10_kp'],
+                                     filter_gripper=True)
+                self.goto_position(moves[f'back_{case}_upright'], duration=1.0,
+                                   filter_gripper=True)
+        finally:
+            self.goto_rest_position()
+            self.reachy.turn_off_smoothly('reachy')
+            self.invalidate_head_aim()
+        logger.info('Moves check terminé')
 
     def invalidate_head_aim(self):
         """Oublie que la tête est orientée vers le plateau.

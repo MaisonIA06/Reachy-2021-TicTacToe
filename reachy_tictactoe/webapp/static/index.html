@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TicTacToe Reachy — MIA La Maison de l'IA</title>
+    <link rel="icon" type="image/png" href="/static/mia-logo-blanc.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+    <style>
+        :root {
+            /* Charte MIA */
+            --mia-navy: #1a3a5c;
+            --mia-navy-light: #2a5a8c;
+            --mia-navy-dark: #0d2840;
+            --mia-deep: #0C1A2A;
+            --mia-terracotta: #b5605a;
+            --mia-terracotta-light: #d4847e;
+            --mia-terracotta-dark: #8a4a45;
+
+            --text-primary: #f0f4f8;
+            --text-secondary: #b8c8d8;
+            --text-muted: #7a95b0;
+
+            --panel: rgba(255, 255, 255, 0.12);
+            --panel-strong: rgba(255, 255, 255, 0.16);
+            --border: rgba(255, 255, 255, 0.16);
+            --border-strong: rgba(255, 255, 255, 0.28);
+
+            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.30);
+            --shadow-glow: 0 0 40px rgba(181, 96, 90, 0.25);
+            --radius: 18px;
+            --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: "Plus Jakarta Sans", "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background-color: var(--mia-navy);
+            background-image: url("/static/mia-fond.jpg");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+            text-shadow: 0 1px 4px rgba(0, 0, 0, 0.30);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .layout {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            min-height: 100vh;
+        }
+
+        /* ---------- En-tête ---------- */
+        .app-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 14px 24px;
+            background: var(--panel);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+        }
+
+        .app-header h1 {
+            font-size: clamp(1.1rem, 2.4vw, 1.6rem);
+            font-weight: 800;
+            letter-spacing: -0.01em;
+        }
+
+        .app-header p {
+            font-size: 0.86rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .header-text { flex: 1; min-width: 0; }
+        .mia-logo { height: 46px; width: auto; object-fit: contain; opacity: 0.92; flex-shrink: 0; }
+
+        /* ---------- Grille principale ---------- */
+        .main-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+            gap: 14px;
+            flex: 1;
+        }
+
+        .card {
+            background: var(--panel);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-card);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .card-title {
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
+            color: var(--text-muted);
+        }
+
+        /* ---------- Statut ---------- */
+        .status-line {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .status-dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            flex-shrink: 0;
+            transition: background var(--transition), box-shadow var(--transition);
+        }
+
+        .status-dot.playing {
+            background: var(--mia-terracotta-light);
+            box-shadow: 0 0 0 4px rgba(212, 132, 126, 0.22);
+            animation: pulse 1.8s ease-in-out infinite;
+        }
+
+        .status-dot.finished { background: #6dd68c; box-shadow: 0 0 0 4px rgba(109, 214, 140, 0.20); }
+        .status-dot.error { background: #f07070; box-shadow: 0 0 0 4px rgba(240, 112, 112, 0.20); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.45; }
+        }
+
+        .status-text { font-size: 1.05rem; font-weight: 700; }
+        .status-detail { font-size: 0.86rem; color: var(--text-secondary); }
+
+        .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .badge {
+            font-size: 0.74rem;
+            font-weight: 700;
+            padding: 4px 11px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.10);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        .badge.robot { background: rgba(181, 96, 90, 0.25); border-color: var(--mia-terracotta); color: #fff; }
+        .badge.human { background: rgba(42, 90, 140, 0.35); border-color: var(--mia-navy-light); color: #fff; }
+
+        /* ---------- Plateau ---------- */
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            aspect-ratio: 1;
+            width: 100%;
+            max-width: 340px;
+            /* auto vertical : centre le plateau dans la hauteur restante
+               plutôt que de le laisser flotter en haut d'une carte étirée
+               par la colonne voisine. */
+            margin: auto;
+        }
+
+        .cell {
+            background: rgba(13, 40, 64, 0.45);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: clamp(1.8rem, 7vw, 3rem);
+            font-weight: 800;
+            transition: all var(--transition);
+        }
+
+        .cell.cube {
+            color: var(--mia-terracotta-light);
+            background: rgba(181, 96, 90, 0.22);
+            border-color: var(--mia-terracotta);
+        }
+
+        .cell.cylinder {
+            color: #8fb8e0;
+            background: rgba(42, 90, 140, 0.28);
+            border-color: var(--mia-navy-light);
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+
+        .legend span { display: flex; align-items: center; gap: 7px; }
+        .legend i { width: 13px; height: 13px; border-radius: 4px; display: inline-block; }
+
+        /* ---------- Caméra ---------- */
+        .camera-wrap {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(13, 40, 64, 0.5);
+            border: 1px solid var(--border);
+            aspect-ratio: 4 / 3;
+            max-height: 42vh;
+        }
+
+        .camera-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+        .camera-wrap .placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 0.88rem;
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* ---------- Boutons ---------- */
+        .actions { display: flex; flex-direction: column; gap: 11px; }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            width: 100%;
+            padding: 13px 18px;
+            border-radius: 15px;
+            border: 2px solid var(--border-strong);
+            background: rgba(255, 255, 255, 0.09);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.98rem;
+            font-weight: 700;
+            text-align: left;
+            cursor: pointer;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            transition: transform 0.14s ease, background var(--transition), border-color var(--transition);
+        }
+
+        .btn .icon { font-size: 1.35rem; flex-shrink: 0; line-height: 1; }
+        .btn .label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .btn .sub { font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); }
+
+        .btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.15); }
+        .btn:active:not(:disabled) { transform: scale(0.98); }
+
+        .btn.primary {
+            background: linear-gradient(135deg, rgba(181, 96, 90, 0.45), rgba(181, 96, 90, 0.18));
+            border-color: var(--mia-terracotta);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .btn.primary:hover:not(:disabled) {
+            background: linear-gradient(135deg, rgba(181, 96, 90, 0.60), rgba(181, 96, 90, 0.30));
+        }
+
+        .btn:disabled { opacity: 0.42; cursor: not-allowed; }
+
+        .toast {
+            padding: 11px 15px;
+            border-radius: 12px;
+            font-size: 0.86rem;
+            font-weight: 600;
+            border: 1px solid;
+            display: none;
+        }
+
+        .toast.show { display: block; }
+        .toast.info { background: rgba(42, 90, 140, 0.30); border-color: var(--mia-navy-light); }
+        .toast.error { background: rgba(240, 112, 112, 0.20); border-color: #f07070; }
+
+        .footer {
+            text-align: center;
+            font-size: 0.76rem;
+            color: var(--text-muted);
+            padding-bottom: 4px;
+        }
+
+        /* ---------- Responsive : tablette et mobile ---------- */
+        @media (max-width: 900px) {
+            .main-grid { grid-template-columns: 1fr; }
+            .app-header { padding: 12px 16px; gap: 14px; }
+            .mia-logo { height: 38px; }
+            .btn { padding: 17px 18px; font-size: 1.02rem; }
+        }
+
+        @media (max-width: 520px) {
+            .layout { padding: 10px; gap: 10px; }
+            .card { padding: 16px; }
+            .app-header p { display: none; }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="layout">
+
+        <header class="app-header">
+            <div class="header-text">
+                <h1>TicTacToe&nbsp;— Reachy</h1>
+                <p>Pilotage et suivi de partie en direct</p>
+            </div>
+            <img src="/static/mia-logo-blanc.png" alt="MIA — La Maison de l'IA" class="mia-logo">
+        </header>
+
+        <div class="main-grid">
+
+            <!-- Colonne gauche : partie -->
+            <section class="card">
+                <div class="card-title">Partie en cours</div>
+
+                <div class="status-line">
+                    <span class="status-dot" id="dot"></span>
+                    <div>
+                        <div class="status-text" id="status-text">Prêt</div>
+                        <div class="status-detail" id="status-detail">Lancez une partie pour commencer</div>
+                    </div>
+                </div>
+
+                <div class="badges">
+                    <span class="badge" id="badge-turn">En attente</span>
+                    <span class="badge" id="badge-games">0 partie</span>
+                </div>
+
+                <div class="board" id="board"></div>
+
+                <div class="legend">
+                    <span><i style="background: var(--mia-terracotta)"></i> Reachy — cubes</span>
+                    <span><i style="background: var(--mia-navy-light)"></i> Vous — cylindres</span>
+                </div>
+            </section>
+
+            <!-- Colonne droite : caméra + commandes -->
+            <section class="card">
+                <div class="card-title">Vue du robot</div>
+                <div class="camera-wrap">
+                    <img id="camera" alt="Caméra de Reachy" style="display: none">
+                    <div class="placeholder" id="camera-placeholder">Caméra indisponible</div>
+                </div>
+
+                <div class="card-title">Commandes</div>
+                <div class="toast" id="toast"></div>
+                <div class="actions">
+                    <button class="btn primary" id="btn-game">
+                        <span class="icon">▶</span>
+                        <span class="label">
+                            <span>Lancer une partie</span>
+                            <span class="sub">Le bras se repose à la fin</span>
+                        </span>
+                    </button>
+
+                    <button class="btn" id="btn-moves">
+                        <span class="icon">🎯</span>
+                        <span class="label">
+                            <span>Tester les mouvements</span>
+                            <span class="sub">Parcourt les 9 cases à vide</span>
+                        </span>
+                    </button>
+
+                    <button class="btn" id="btn-calib">
+                        <span class="icon">⚙</span>
+                        <span class="label">
+                            <span>Calibrer</span>
+                            <span class="sub">Vérifier le cadrage du plateau</span>
+                        </span>
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <div class="footer">MIA — La Maison de l'IA · Reachy 2021</div>
+    </div>
+
+    <script>
+        const PIECES = { 0: '', 1: '✕', 2: '◯' };
+        const CLASSES = { 0: '', 1: 'cube', 2: 'cylinder' };
+
+        const board = document.getElementById('board');
+        const cells = [];
+        for (let i = 0; i < 9; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            board.appendChild(cell);
+            cells.push(cell);
+        }
+
+        const dot = document.getElementById('dot');
+        const statusText = document.getElementById('status-text');
+        const statusDetail = document.getElementById('status-detail');
+        const badgeTurn = document.getElementById('badge-turn');
+        const badgeGames = document.getElementById('badge-games');
+        const toast = document.getElementById('toast');
+        const btnGame = document.getElementById('btn-game');
+        const btnMoves = document.getElementById('btn-moves');
+        const btnCalib = document.getElementById('btn-calib');
+
+        const STATUS = {
+            idle: 'Prêt',
+            playing: 'Partie en cours',
+            finished: 'Partie terminée',
+            error: 'Erreur',
+        };
+
+        const WINNER = {
+            robot: 'Reachy a gagné',
+            human: 'Vous avez gagné !',
+            nobody: 'Match nul',
+            aborted: 'Partie annulée',
+        };
+
+        function showToast(message, kind = 'info') {
+            toast.textContent = message;
+            toast.className = 'toast show ' + kind;
+            clearTimeout(showToast._t);
+            showToast._t = setTimeout(() => toast.className = 'toast', 6000);
+        }
+
+        function render(data) {
+            const game = data.game;
+            const robot = data.robot;
+
+            game.board.forEach((piece, i) => {
+                cells[i].textContent = PIECES[piece] || '';
+                cells[i].className = 'cell ' + (CLASSES[piece] || '');
+            });
+
+            dot.className = 'status-dot ' + game.status;
+            statusText.textContent = game.winner
+                ? (WINNER[game.winner] || game.winner)
+                : (STATUS[game.status] || game.status);
+            statusDetail.textContent = robot.last_error
+                ? robot.last_error
+                : (game.message || 'Lancez une partie pour commencer');
+
+            if (game.current_player === 'robot') {
+                badgeTurn.textContent = 'Au tour de Reachy';
+                badgeTurn.className = 'badge robot';
+            } else if (game.current_player === 'human') {
+                badgeTurn.textContent = 'À vous de jouer';
+                badgeTurn.className = 'badge human';
+            } else {
+                badgeTurn.textContent = 'En attente';
+                badgeTurn.className = 'badge';
+            }
+
+            const n = game.games_played;
+            badgeGames.textContent = n + (n > 1 ? ' parties' : ' partie');
+
+            // Un seul bras : tout est grisé pendant qu'une action tourne.
+            [btnGame, btnMoves, btnCalib].forEach(b => b.disabled = robot.busy);
+        }
+
+        async function post(url, bouton) {
+            try {
+                const r = await fetch(url, { method: 'POST' });
+                if (r.status === 409) {
+                    const d = await r.json();
+                    showToast('Robot occupé : ' + d.detail, 'error');
+                } else if (!r.ok) {
+                    showToast('Échec (HTTP ' + r.status + ')', 'error');
+                } else {
+                    showToast('Action lancée', 'info');
+                }
+            } catch (e) {
+                showToast('Serveur injoignable', 'error');
+            }
+        }
+
+        btnGame.onclick = () => post('/api/game');
+        btnMoves.onclick = () => post('/api/moves-check');
+        btnCalib.onclick = () => showToast(
+            'Calibration : à lancer depuis le robot pour le moment (clics souris requis).', 'info');
+
+        // Flux d'état poussé par le serveur, avec repli sur du polling.
+        function connect() {
+            const source = new EventSource('/api/events');
+            source.onmessage = e => render(JSON.parse(e.data));
+            source.onerror = () => {
+                source.close();
+                setTimeout(connect, 3000);
+            };
+        }
+        connect();
+
+        // Rafraîchissement de l'image caméra
+        const camera = document.getElementById('camera');
+        const placeholder = document.getElementById('camera-placeholder');
+        setInterval(() => {
+            const img = new Image();
+            img.onload = () => {
+                camera.src = img.src;
+                camera.style.display = 'block';
+                placeholder.style.display = 'none';
+            };
+            img.onerror = () => {
+                camera.style.display = 'none';
+                placeholder.style.display = 'flex';
+            };
+            img.src = '/api/camera.jpg?t=' + Date.now();
+        }, 1000);
+    </script>
+</body>
+
+</html>
