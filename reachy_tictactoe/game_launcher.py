@@ -9,6 +9,7 @@ import numpy as np
 import zzlog
 
 from . import TictactoePlayground
+from .tictactoe_playground import PawnNotGrabbed
 
 logger = logging.getLogger('reachy.tictactoe')
 
@@ -164,7 +165,18 @@ def run_game_loop(tictactoe_playground):
             tictactoe_playground.display_board(board, current_player='robot')
             tictactoe_playground.run_thinking_behavior()
             action, _ = tictactoe_playground.choose_next_action(board)
-            board = tictactoe_playground.play(action, board)
+            try:
+                board = tictactoe_playground.play(action, board)
+            except PawnNotGrabbed:
+                # Aucun cube en grab_1 : le tour de Reachy N'A PAS eu lieu.
+                # On garde son tour et on réessaiera au prochain passage,
+                # le temps que l'humain redépose un cube. Surtout ne pas
+                # marquer la case : la vision verrait un plateau différent
+                # et l'humain serait accusé de tricher.
+                logger.warning(
+                    'Coup de Reachy reporté : pas de cube à saisir en grab_1'
+                )
+                continue
 
             last_board = board
             last_analyzed_board = board.copy()
@@ -174,7 +186,7 @@ def run_game_loop(tictactoe_playground):
             logger.info('Next turn', extra={
                 'next_player': 'Human',
             })
-            
+
             # Afficher le plateau après le coup de Reachy
             tictactoe_playground.display_board(board, current_player='human')
 

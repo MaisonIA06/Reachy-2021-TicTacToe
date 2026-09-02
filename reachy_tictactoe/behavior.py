@@ -38,6 +38,20 @@ def _log_sound_failure(future):
     if exc is not None:
         logger.warning(f'Background sound failed: {exc}')
 
+
+def play_sound_background(sound_path, device='hw:0,0'):
+    """Joue un son SANS bloquer l'appelant.
+
+    ``play_sound_safe`` attend la fin de la lecture (jusqu'à 10 s) : appelée
+    en pleine séquence de jeu, elle fige le bras. On passe donc par
+    l'executor à un worker, qui sérialise les sons sur le périphérique ALSA
+    exclusif et logge les échecs.
+    """
+    future = _sound_executor.submit(play_sound_safe, sound_path, device)
+    future.add_done_callback(_log_sound_failure)
+    return future
+
+
 # Timeout global pour les tâches parallèles (sécurité)
 TASK_TIMEOUT = 15  # secondes
 

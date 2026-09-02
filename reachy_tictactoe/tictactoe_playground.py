@@ -16,9 +16,10 @@ from .vision import get_board_configuration, is_board_valid
 from .utils import piece2id, id2piece, piece2player
 from .moves import moves, rest_pos, base_pos
 from .motors import safe_turn_on as _safe_turn_on
+from .motors import is_holding_pawn, wait_until_settled
 from .rl_agent import value_actions
 from . import behavior
-from .config import GRIPPER_OPEN, GRIPPER_CLOSED
+from .config import GRIPPER_OPEN, GRIPPER_CLOSED, GRIPPER_HOLDING_THRESHOLD
 
 
 logger = logging.getLogger('reachy.tictactoe')
@@ -34,6 +35,22 @@ NEUTRAL_COLOR = (0, 0, 0)
 # Après ce nombre d'analyses ratées d'affilée, on considère que la tête
 # a pu être déplacée (bousculée, couple perdu) et on re-vise le plateau.
 ANALYSIS_FAILURES_BEFORE_REAIM = 5
+
+# L'humain redépose le cube à la main en grab_1 : l'oubli est un cas
+# courant, on réessaie avant de renoncer.
+GRAB_ATTEMPTS = 3
+GRAB_RETRY_DELAY = 2.0  # secondes laissées à l'humain pour poser un cube
+
+SOUNDS_DIR = os.path.join(os.path.dirname(__file__), 'sounds')
+
+
+class PawnNotGrabbed(Exception):
+    """La pince s'est refermée à vide : aucun cube à poser.
+
+    Levée par ``play_pawn`` après plusieurs tentatives. Sans elle, le jeu
+    marquerait la case d'un cube inexistant, la vision verrait autre chose,
+    et l'humain serait accusé de tricher.
+    """
 
 
 def game_status_text(current_player=None, winner=None):
@@ -523,8 +540,10 @@ class TictactoePlayground(object):
         """Joue un pion à la position spécifiée"""
         board = actual_board.copy()
         
+        # Toujours grab_1 : il n'y a pas la place d'aligner cinq cubes à côté
+        # du plateau, l'humain en redépose un au même endroit à chaque tour.
         self.play_pawn(
-            grab_index=self.pawn_played + 1,
+            grab_index=1,
             box_index=action + 1,
         )
         
@@ -548,7 +567,11 @@ class TictactoePlayground(object):
         Séquence complète pour jouer un pion
 
         Args:
-            grab_index: Index du pion à prendre (1-5)
+            grab_index: Index du pion à prendre (1-5). ⚠️ Le jeu passe
+                TOUJOURS 1 : il n'y a pas la place d'aligner cinq cubes à
+                côté du plateau, l'humain en redépose un au même endroit à
+                chaque tour. Les positions grab_2..5 restent supportées mais
+                ne sont plus exercées par une partie (donc plus validées).
             box_index: Index de la case où placer le pion (1-9)
         """
         # Activer le bras droit
@@ -596,15 +619,45 @@ class TictactoePlayground(object):
         # Attendre stabilisation
         time.sleep(0.15)
 
-        # Fermeture forcée jusqu'à GRIPPER_CLOSED (méthode éprouvée).
-        self.close_gripper()
-
-        # Lecture de charge à titre informatif : le cube est-il bien tenu ?
-        # (charge faible = la pince s'est fermée dans le vide)
-        load = self.reachy.r_arm.r_gripper.present_load
-        if load is not None and abs(load) < 80:
-            logger.warning(
-                f'Cube peut-être non saisi (charge faible: {abs(load):.0f})'
+        # Fermeture forcée jusqu'à GRIPPER_CLOSED (méthode éprouvée), puis
+        # vérification que le cube est bien tenu. Le verdict se lit sur la
+        # POSITION de blocage : sans cube la pince se referme presque
+        # entièrement (-7,7° mesuré), un cube l'arrête bien plus ouverte
+        # (-10,6° à -19,6° mesurés). present_load ne discrimine pas : elle
+        # vaut 2 dans les deux cas.
+        for tentative in range(1, GRAB_ATTEMPTS + 1):
+            position = self.close_gripper()
+            if position is None:
+                # Flux de positions muet : impossible de confirmer la prise.
+                # On traite comme un échec — mieux vaut reporter le coup que
+                # promener une pince vide jusqu'à la case.
+                logger.warning(
+                    f'Prise invérifiable (tentative {tentative}/'
+                    f'{GRAB_ATTEMPTS}) : position de pince illisible'
+                )
+            elif is_holding_pawn(position):
+                break
+            else:
+                logger.warning(
+                    f'Cube NON saisi (tentative {tentative}/{GRAB_ATTEMPTS}) : '
+                    f'pince refermée à {position:.1f}°, seuil '
+                    f'{GRIPPER_HOLDING_THRESHOLD}° — posez un cube en grab_1'
+                )
+            if tentative < GRAB_ATTEMPTS:
+                behavior.play_sound_background(
+                    os.path.join(SOUNDS_DIR, 'Observe.mp3'))
+                self.open_gripper()
+                time.sleep(GRAB_RETRY_DELAY)
+        else:
+            # Ramener le bras en position de base AVANT de propager : sinon
+            # il reste étendu au-dessus de la zone de prise, couple actif,
+            # potentiellement dans le champ de la caméra — et la boucle de
+            # jeu ne pourrait plus analyser le plateau.
+            self.open_gripper()
+            self.goto_base_position()
+            raise PawnNotGrabbed(
+                f'pince vide après {GRAB_ATTEMPTS} tentatives en grab_'
+                f'{grab_index}'
             )
     
         # Animation des antennes (SDK 2021 travaille en degrés)
@@ -918,28 +971,45 @@ class TictactoePlayground(object):
         time.sleep(0.05)
         
     def close_gripper(self):
-        """Ferme la pince (méthode legacy, sans détection de blocage)"""
+        """Ferme la pince et rend la main quand elle est IMMOBILE.
+
+        Returns:
+            float: position de blocage stabilisée, à comparer au seuil via
+            ``motors.is_holding_pawn``.
+
+        ⚠️ Ne pas remplacer l'attente de stabilisation par un délai fixe :
+        bloquée par un cube la pince s'immobilise en quelques dizaines de
+        ms, mais à vide elle parcourt encore plusieurs degrés. L'ancien
+        ``sleep(0.3)`` lisait une position de transit (-12° au lieu de
+        -7,7°), ce qui faisait passer une pince VIDE pour une prise
+        réussie.
+        """
+        gripper = self.reachy.r_arm.r_gripper
+
         # S'assurer que le gripper est activé
-        self.reachy.r_arm.r_gripper.compliant = False
-        self.reachy.r_arm.r_gripper.torque_limit = 100
+        gripper.compliant = False
+        gripper.torque_limit = 100
         time.sleep(0.05)
 
-        logger.info(f"Closing gripper from {self.reachy.r_arm.r_gripper.present_position:.1f}°")
+        logger.info(f"Closing gripper from {gripper.present_position:.1f}°")
 
         # Fermer pour tenir les cylindres (goto bloquant)
         goto(
-            goal_positions={self.reachy.r_arm.r_gripper: GRIPPER_CLOSED},
+            goal_positions={gripper: GRIPPER_CLOSED},
             duration=0.5,
             interpolation_mode=InterpolationMode.LINEAR,
         )
 
-        # Forcer la position et laisser le servo établir le couple de
-        # blocage sur le cube AVANT que play_pawn ne lise present_load
-        # (une lecture trop précoce donne une valeur transitoire).
-        self.reachy.r_arm.r_gripper.goal_position = GRIPPER_CLOSED
-        time.sleep(0.3)
+        # Maintenir la consigne (le servo établit son couple de blocage sur
+        # le cube) puis attendre l'immobilité réelle avant de conclure.
+        gripper.goal_position = GRIPPER_CLOSED
+        position = wait_until_settled(lambda: gripper.present_position)
 
-        logger.info(f"Gripper closed to {self.reachy.r_arm.r_gripper.present_position:.1f}°")
+        if position is None:
+            logger.warning('Gripper closed, position illisible')
+        else:
+            logger.info(f"Gripper closed to {position:.1f}°")
+        return position
 
     def open_gripper(self):
         """Ouvre la pince"""

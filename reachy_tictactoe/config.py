@@ -109,6 +109,20 @@ MODELS = {
 GRIPPER_OPEN = -45      # Complètement ouvert
 GRIPPER_CLOSED = -6     # Fermé pour tenir les cylindres
 
+# Détection « un cube est tenu » : se juge sur la POSITION de blocage, PAS
+# sur present_load (mesurée à 2 aussi bien à vide que cube serré — elle ne
+# discrimine rien). Mesures sur le robot, 2026-09-02 :
+GRIPPER_EMPTY_POSITION = -7.7    # pince refermée à vide (3 essais sur 3)
+GRIPPER_SMALLEST_HOLD = -10.6    # plus petite prise observée (10 prises)
+
+# Un cube est tenu si la pince reste PLUS OUVERTE que ce seuil, placé dans
+# l'intervalle libre entre les deux mesures ci-dessus.
+# ⚠️ La position à vide dépend de GRIPPER_CLOSED (elle vaut environ
+# GRIPPER_CLOSED - 1,7°) : si vous changez la consigne de fermeture, il faut
+# REMESURER GRIPPER_EMPTY_POSITION et redéplacer ce seuil, sinon la
+# détection devient un « toujours vrai » silencieux.
+GRIPPER_HOLDING_THRESHOLD = -9
+
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
