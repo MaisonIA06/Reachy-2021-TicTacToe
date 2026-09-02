@@ -76,10 +76,22 @@
             box-shadow: var(--shadow-card);
         }
 
+        /* Titre en dégradé, repris de la charte des autres jeux MIA
+           (Chatbot Éternel) : blanc cassé -> terracotta clair. */
         .app-header h1 {
-            font-size: clamp(1.1rem, 2.4vw, 1.6rem);
+            font-size: clamp(1.3rem, 2.8vw, 2rem);
             font-weight: 800;
-            letter-spacing: -0.01em;
+            letter-spacing: -0.5px;
+            background: linear-gradient(100deg,
+                        var(--text-primary) 0%,
+                        var(--text-primary) 25%,
+                        var(--mia-terracotta-light) 78%,
+                        var(--mia-terracotta) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            /* Le texte étant transparent, l'ombre du body le grisrait. */
+            text-shadow: none;
         }
 
         .app-header p {
@@ -89,7 +101,14 @@
         }
 
         .header-text { flex: 1; min-width: 0; }
-        .mia-logo { height: 46px; width: auto; object-fit: contain; opacity: 0.92; flex-shrink: 0; }
+        .mia-logo {
+            height: 52px;
+            width: auto;
+            object-fit: contain;
+            opacity: 0.95;
+            flex-shrink: 0;
+            filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+        }
 
         /* ---------- Grille principale ---------- */
         .main-grid {
@@ -294,53 +313,155 @@
         }
 
         /* ---------- Boutons ---------- */
-        .actions { display: flex; flex-direction: column; gap: 9px; }
+        .actions { display: flex; flex-direction: column; gap: 10px; }
 
+        /* -------- Boutons « brillants » --------
+           Volume donné par trois couches : un dégradé vertical (clair en
+           haut, sombre en bas), un liseré interne clair sur l'arête
+           supérieure, une ombre interne sombre en bas. Le ::before ajoute
+           le reflet du haut, le ::after balaie une brillance au survol. */
         .btn {
+            position: relative;
+            overflow: hidden;
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 14px;
             width: 100%;
-            padding: 13px 18px;
-            border-radius: 15px;
-            border: 2px solid var(--border-strong);
-            background: rgba(255, 255, 255, 0.09);
-            color: var(--text-primary);
+            padding: 15px 20px;
+            border: none;
+            border-radius: 14px;
+            color: #fff;
             font-family: inherit;
-            font-size: 0.98rem;
-            font-weight: 700;
+            font-size: 1rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
             text-align: left;
             cursor: pointer;
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
-            transition: transform 0.14s ease, background var(--transition), border-color var(--transition);
+            isolation: isolate;
+            transition: transform 0.14s ease, filter var(--transition),
+                        box-shadow var(--transition);
         }
 
-        .btn .icon { font-size: 1.35rem; flex-shrink: 0; line-height: 1; }
+        .btn > * { position: relative; z-index: 1; }
+
+        /* ⚠️ `display: flex` écrase le `display: none` que le navigateur
+           applique à [hidden] : sans cette règle, le bouton « Arrêter »
+           reste visible en permanence. */
+        .btn[hidden] { display: none; }
+
+        /* Reflet permanent sur la moitié haute (l'effet « verre »). */
+        .btn::before {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; top: 0;
+            height: 48%;
+            border-radius: 14px 14px 40% 40% / 14px 14px 100% 100%;
+            background: linear-gradient(180deg,
+                        rgba(255, 255, 255, 0.30),
+                        rgba(255, 255, 255, 0.06) 70%,
+                        rgba(255, 255, 255, 0));
+            pointer-events: none;
+        }
+
+        /* Balayage lumineux au survol. */
+        .btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            transform: translateX(-120%);
+            background: linear-gradient(105deg,
+                        transparent 35%,
+                        rgba(255, 255, 255, 0.30) 50%,
+                        transparent 65%);
+            pointer-events: none;
+        }
+
+        .btn:hover:not(:disabled)::after { transform: translateX(120%); transition: transform 0.7s ease; }
+
+        .btn .icon { font-size: 1.3rem; flex-shrink: 0; line-height: 1; }
         .btn .label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .btn .sub { font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); }
 
-        .btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.15); }
-        .btn:active:not(:disabled) { transform: scale(0.98); }
-
-        .btn.primary {
-            background: linear-gradient(135deg, rgba(181, 96, 90, 0.45), rgba(181, 96, 90, 0.18));
-            border-color: var(--mia-terracotta);
-            box-shadow: var(--shadow-glow);
+        .btn .sub {
+            font-size: 0.76rem;
+            font-weight: 500;
+            letter-spacing: 0;
+            color: rgba(255, 255, 255, 0.78);
         }
 
-        .btn.primary:hover:not(:disabled) {
-            background: linear-gradient(135deg, rgba(181, 96, 90, 0.60), rgba(181, 96, 90, 0.30));
-        }
-
+        .btn:hover:not(:disabled) { filter: brightness(1.08); }
+        .btn:active:not(:disabled) { transform: translateY(1px) scale(0.99); }
         .btn:disabled { opacity: 0.42; cursor: not-allowed; }
 
-        .btn.danger {
-            background: rgba(240, 112, 112, 0.20);
-            border-color: #f07070;
+        /* Action principale : terracotta de la charte. */
+        .btn.primary {
+            background: linear-gradient(180deg,
+                        var(--mia-terracotta-light) 0%,
+                        var(--mia-terracotta) 45%,
+                        var(--mia-terracotta-dark) 100%);
+            box-shadow:
+                0 6px 20px rgba(0, 0, 0, 0.30),
+                0 0 32px rgba(181, 96, 90, 0.28),
+                inset 0 1px 0 rgba(255, 255, 255, 0.42),
+                inset 0 -2px 0 rgba(0, 0, 0, 0.22);
         }
 
-        .btn.danger:hover:not(:disabled) { background: rgba(240, 112, 112, 0.32); }
+        /* Même logique, autre couleur de la charte : navy. */
+        .btn.secondary {
+            background: linear-gradient(180deg,
+                        var(--mia-navy-light) 0%,
+                        var(--mia-navy) 50%,
+                        var(--mia-navy-dark) 100%);
+            box-shadow:
+                0 4px 14px rgba(0, 0, 0, 0.26),
+                inset 0 1px 0 rgba(255, 255, 255, 0.28),
+                inset 0 -2px 0 rgba(0, 0, 0, 0.24);
+        }
+
+        /* Arrêt : navy très sombre, pour ne pas rivaliser avec « Lancer ». */
+        .btn.danger {
+            background: linear-gradient(180deg,
+                        #2b3f52 0%, #1b2c3d 50%, #101d2a 100%);
+            box-shadow:
+                0 4px 14px rgba(0, 0, 0, 0.30),
+                inset 0 1px 0 rgba(255, 255, 255, 0.22),
+                inset 0 -2px 0 rgba(0, 0, 0, 0.26);
+        }
+
+        .btn.danger .icon { color: #f07070; }
+
+        /* -------- Réglages discrets (pas pour le grand public) -------- */
+        .actions-tools {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 2px;
+        }
+
+        .btn.tool {
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            padding: 10px 8px;
+            border-radius: 11px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-align: center;
+            opacity: 0.62;
+            background: linear-gradient(180deg,
+                        rgba(42, 90, 140, 0.55) 0%,
+                        rgba(26, 58, 92, 0.55) 50%,
+                        rgba(13, 40, 64, 0.60) 100%);
+            box-shadow:
+                0 2px 8px rgba(0, 0, 0, 0.22),
+                inset 0 1px 0 rgba(255, 255, 255, 0.18),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.20);
+        }
+
+        .btn.tool:hover:not(:disabled) { opacity: 1; }
+        .btn.tool::before { height: 44%; }
+        .btn.tool .icon { font-size: 1.1rem; }
 
         .toast {
             padding: 11px 15px;
@@ -383,10 +504,10 @@
 
         <header class="app-header">
             <div class="header-text">
-                <h1>TicTacToe&nbsp;— Reachy</h1>
+                <h1>TicTacToe Reachy</h1>
                 <p>Pilotage et suivi de partie en direct</p>
             </div>
-            <img src="/static/mia-logo-blanc.png" alt="MIA — La Maison de l'IA" class="mia-logo">
+            <img src="/static/mia-logo.png" alt="MIA — La Maison de l'IA" class="mia-logo">
         </header>
 
         <div class="main-grid">
@@ -429,29 +550,30 @@
                         </span>
                     </button>
 
+
                     <button class="btn danger" id="btn-stop" hidden>
                         <span class="icon">■</span>
                         <span class="label">
-                            <span>Arrêter la partie</span>
+                            <span>Arrêter</span>
                             <span class="sub">Le bras finit son geste puis se repose</span>
                         </span>
                     </button>
 
-                    <button class="btn" id="btn-moves">
-                        <span class="icon">🎯</span>
-                        <span class="label">
-                            <span>Tester les mouvements</span>
-                            <span class="sub">Parcourt les 9 cases à vide</span>
-                        </span>
-                    </button>
+                    <!-- Réglages : volontairement discrets, ils ne
+                         s'adressent pas au public d'une démonstration. -->
+                    <div class="actions-tools">
+                        <button class="btn tool" id="btn-moves"
+                                title="Parcourt les 9 cases à vide">
+                            <span class="icon">🎯</span>
+                            <span>Test mouvements</span>
+                        </button>
 
-                    <button class="btn" id="btn-calib">
-                        <span class="icon">⚙</span>
-                        <span class="label">
-                            <span>Calibrer</span>
-                            <span class="sub">Vérifier le cadrage du plateau</span>
-                        </span>
-                    </button>
+                        <button class="btn tool" id="btn-calib"
+                                title="Vérifier le cadrage du plateau">
+                            <span class="icon">⚙</span>
+                            <span>Calibrage</span>
+                        </button>
+                    </div>
                 </div>
             </section>
             </div>
