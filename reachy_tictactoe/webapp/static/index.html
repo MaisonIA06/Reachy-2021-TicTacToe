@@ -94,9 +94,19 @@
         /* ---------- Grille principale ---------- */
         .main-grid {
             display: grid;
-            grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+            /* La caméra prend la colonne la plus large ET toute la hauteur :
+               c'est la vue qui sert à juger le cadrage du plateau. */
+            grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
             gap: 14px;
             flex: 1;
+            min-height: 0;
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            min-height: 0;
         }
 
         .card {
@@ -106,11 +116,15 @@
             border: 1px solid var(--border);
             border-radius: var(--radius);
             box-shadow: var(--shadow-card);
-            padding: 20px;
+            padding: 16px 20px;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 12px;
+            min-height: 0;
         }
+
+        /* La carte caméra prend toute la hauteur restante de sa colonne. */
+        .card.stretch { flex: 1; }
 
         .card-title {
             font-size: 0.78rem;
@@ -119,6 +133,28 @@
             letter-spacing: 0.09em;
             color: var(--text-muted);
         }
+
+        .card-head {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .card-head .card-title { flex: 1; }
+
+        .switch {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.76rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .switch input { accent-color: var(--mia-terracotta); cursor: pointer; }
 
         /* ---------- Statut ---------- */
         .status-line {
@@ -176,7 +212,7 @@
             gap: 8px;
             aspect-ratio: 1;
             width: 100%;
-            max-width: 340px;
+            max-width: 260px;
             /* auto vertical : centre le plateau dans la hauteur restante
                plutôt que de le laisser flotter en haut d'une carte étirée
                par la colonne voisine. */
@@ -225,11 +261,25 @@
             overflow: hidden;
             background: rgba(13, 40, 64, 0.5);
             border: 1px solid var(--border);
-            aspect-ratio: 4 / 3;
-            max-height: 42vh;
+            /* Pas d'aspect-ratio figé : l'image est PORTRAIT (480x640) en
+               plein cadre et presque carrée une fois recadrée sur le
+               plateau. Un cadre fixe rognait le plateau. */
+            flex: 1;
+            min-height: 340px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .camera-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        /* contain, jamais cover : on ne rogne JAMAIS le plateau. Et
+           width/height 100% (pas auto) pour que l'image OCCUPE le cadre —
+           en auto elle resterait à sa taille naturelle, minuscule. */
+        .camera-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
 
         .camera-wrap .placeholder {
             position: absolute;
@@ -244,7 +294,7 @@
         }
 
         /* ---------- Boutons ---------- */
-        .actions { display: flex; flex-direction: column; gap: 11px; }
+        .actions { display: flex; flex-direction: column; gap: 9px; }
 
         .btn {
             display: flex;
@@ -284,6 +334,13 @@
         }
 
         .btn:disabled { opacity: 0.42; cursor: not-allowed; }
+
+        .btn.danger {
+            background: rgba(240, 112, 112, 0.20);
+            border-color: #f07070;
+        }
+
+        .btn.danger:hover:not(:disabled) { background: rgba(240, 112, 112, 0.32); }
 
         .toast {
             padding: 11px 15px;
@@ -334,7 +391,8 @@
 
         <div class="main-grid">
 
-            <!-- Colonne gauche : partie -->
+            <!-- Colonne gauche : partie + commandes -->
+            <div class="column">
             <section class="card">
                 <div class="card-title">Partie en cours</div>
 
@@ -359,14 +417,7 @@
                 </div>
             </section>
 
-            <!-- Colonne droite : caméra + commandes -->
             <section class="card">
-                <div class="card-title">Vue du robot</div>
-                <div class="camera-wrap">
-                    <img id="camera" alt="Caméra de Reachy" style="display: none">
-                    <div class="placeholder" id="camera-placeholder">Caméra indisponible</div>
-                </div>
-
                 <div class="card-title">Commandes</div>
                 <div class="toast" id="toast"></div>
                 <div class="actions">
@@ -375,6 +426,14 @@
                         <span class="label">
                             <span>Lancer une partie</span>
                             <span class="sub">Le bras se repose à la fin</span>
+                        </span>
+                    </button>
+
+                    <button class="btn danger" id="btn-stop" hidden>
+                        <span class="icon">■</span>
+                        <span class="label">
+                            <span>Arrêter la partie</span>
+                            <span class="sub">Le bras finit son geste puis se repose</span>
                         </span>
                     </button>
 
@@ -393,6 +452,26 @@
                             <span class="sub">Vérifier le cadrage du plateau</span>
                         </span>
                     </button>
+                </div>
+            </section>
+            </div>
+
+            <!-- Colonne droite : caméra pleine hauteur -->
+            <section class="card stretch">
+                <div class="card-head">
+                    <span class="card-title">Vue du robot</span>
+                    <label class="switch">
+                        <input type="checkbox" id="opt-overlay">
+                        <span>Repères</span>
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" id="opt-full">
+                        <span>Plein cadre</span>
+                    </label>
+                </div>
+                <div class="camera-wrap">
+                    <img id="camera" alt="Caméra de Reachy" style="display: none">
+                    <div class="placeholder" id="camera-placeholder">Caméra indisponible</div>
                 </div>
             </section>
         </div>
@@ -422,6 +501,7 @@
         const btnGame = document.getElementById('btn-game');
         const btnMoves = document.getElementById('btn-moves');
         const btnCalib = document.getElementById('btn-calib');
+        const btnStop = document.getElementById('btn-stop');
 
         const STATUS = {
             idle: 'Prêt',
@@ -435,6 +515,7 @@
             human: 'Vous avez gagné !',
             nobody: 'Match nul',
             aborted: 'Partie annulée',
+            stopped: 'Partie arrêtée',
         };
 
         function showToast(message, kind = 'info') {
@@ -477,6 +558,11 @@
 
             // Un seul bras : tout est grisé pendant qu'une action tourne.
             [btnGame, btnMoves, btnCalib].forEach(b => b.disabled = robot.busy);
+
+            // « Arrêter » n'a de sens que pendant une partie — sans lui, un
+            // clic malencontreux immobiliserait le robot jusqu'au
+            // redémarrage du serveur.
+            btnStop.hidden = robot.running !== 'game';
         }
 
         async function post(url, bouton) {
@@ -497,6 +583,7 @@
 
         btnGame.onclick = () => post('/api/game');
         btnMoves.onclick = () => post('/api/moves-check');
+        btnStop.onclick = () => post('/api/stop');
         btnCalib.onclick = () => showToast(
             'Calibration : à lancer depuis le robot pour le moment (clics souris requis).', 'info');
 
@@ -511,10 +598,19 @@
         }
         connect();
 
-        // Rafraîchissement de l'image caméra
+        // Rafraîchissement de l'image caméra.
+        // Par défaut recadrée sur la zone calibrée du plateau : la caméra
+        // voit tout le bureau, ce qui noie le jeu.
         const camera = document.getElementById('camera');
         const placeholder = document.getElementById('camera-placeholder');
+        const optOverlay = document.getElementById('opt-overlay');
+        const optFull = document.getElementById('opt-full');
+
         setInterval(() => {
+            const params = new URLSearchParams({ t: Date.now() });
+            if (!optFull.checked) params.set('crop', 'true');
+            if (optOverlay.checked) params.set('overlay', 'true');
+
             const img = new Image();
             img.onload = () => {
                 camera.src = img.src;
@@ -525,7 +621,7 @@
                 camera.style.display = 'none';
                 placeholder.style.display = 'flex';
             };
-            img.src = '/api/camera.jpg?t=' + Date.now();
+            img.src = '/api/camera.jpg?' + params;
         }, 1000);
     </script>
 </body>

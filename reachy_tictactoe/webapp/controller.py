@@ -51,12 +51,66 @@ class RobotController:
     # -- Actions ----------------------------------------------------------
 
     def start_game(self):
-        """Joue une partie, puis repose le bras et coupe le couple."""
-        self._launch('game', self._session.play_one_game)
+        """Joue une partie, puis repose le bras et coupe le couple.
+
+        Le drapeau d'arrêt est remis à zéro ICI, avant que l'action soit
+        déclarée en cours : sinon un ``/api/stop`` arrivé entre les deux
+        serait effacé par le démarrage de la partie, tout en répondant 202.
+        """
+        self._session.reset_stop()
+        self._launch('game', self._run_game)
 
     def check_moves(self):
         """Parcourt les 9 cases à vide, pour vérifier le positionnement."""
-        self._launch('moves_check', self._session.playground.run_moves_check)
+        self._session.reset_stop()
+        self._launch('moves_check', self._run_moves_check)
+
+    def stop(self):
+        """Demande l'arrêt de l'action en cours (partie ou parcours).
+
+        L'arrêt est coopératif : le bras finit son geste puis se repose,
+        il n'est jamais figé en pleine trajectoire.
+
+        Returns:
+            Le nom de l'action arrêtée, ou None si le robot était libre.
+        """
+        action = self.running
+        if action is None:
+            return None
+        self._session.request_stop()
+        return action
+
+    # -- Corps des actions ------------------------------------------------
+
+    def _run_game(self):
+        self._session.play_one_game(reset_stop=False)
+        self._cooldown_if_needed()
+
+    def _run_moves_check(self):
+        self._session.playground.run_moves_check(
+            should_stop=self._session.stop_requested)
+        self._cooldown_if_needed()
+
+    def _cooldown_if_needed(self):
+        """Protection thermique, comme la boucle CLI.
+
+        L'interface permet d'enchaîner les parties d'un clic : sans ce
+        contrôle elle contournerait le seuil de 50 °C.
+        """
+        playground = self._session.playground
+        if not playground.need_cooldown():
+            return
+        logger.warning('Refroidissement nécessaire')
+        # Bras déjà au repos et hors tension (rest) : on ne le réalimente
+        # pas, seule la tête l'est pour animer les antennes.
+        playground.safe_turn_on('head')
+        playground.enter_sleep_mode()
+        try:
+            playground.wait_for_cooldown(move_to_rest=False)
+        finally:
+            playground.leave_sleep_mode()
+            playground.invalidate_head_aim()
+        logger.info('Refroidissement terminé')
 
     # -- Interne ----------------------------------------------------------
 
@@ -82,6 +136,12 @@ class RobotController:
 
         thread = threading.Thread(
             target=run, name=f'reachy-{name}', daemon=True)
+        # Publier le thread AVANT de le démarrer, sous le même verrou que
+        # _running : sinon wait() pourrait rendre la main sur le thread
+        # précédent, déjà terminé, alors que la nouvelle action pilote le
+        # bras.
+        with self._lock:
+            self._thread = thread
         try:
             thread.start()
         except Exception:
@@ -89,6 +149,5 @@ class RobotController:
             # boutons de l'interface répondraient 409 pour toujours.
             with self._lock:
                 self._running = None
+                self._thread = None
             raise
-        with self._lock:
-            self._thread = thread

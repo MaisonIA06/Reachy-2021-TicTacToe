@@ -19,33 +19,106 @@ import pytest
 from helpers import empty_board
 
 
-class TestAffichageDefaillant:
+class TestAffichageJamaisTente:
+    """Qt ne lève pas d'exception : il ABORT le processus.
 
-    def test_une_erreur_d_affichage_n_interrompt_pas_la_partie(
+    Constaté en production le 2026-09-02 : une partie lancée depuis
+    l'interface web a tué le serveur avec
+    « qt.qpa.xcb: could not connect to display ». Un ``try/except`` autour
+    de ``cv.imshow`` ne protège de rien — il faut ne pas l'appeler.
+    """
+
+    def test_pas_d_imshow_sans_variable_display(self, playground, monkeypatch):
+        import reachy_tictactoe.tictactoe_playground as module
+
+        faux_cv = MagicMock()
+        monkeypatch.setattr(module, 'cv', faux_cv)
+        monkeypatch.setattr(module.sys, 'platform', 'linux')
+        monkeypatch.delenv('DISPLAY', raising=False)
+
+        playground.display_board(empty_board())
+
+        faux_cv.imshow.assert_not_called()
+
+    def test_pas_d_imshow_hors_du_thread_principal(self, playground, monkeypatch):
+        """highgui n'est pas supporté hors thread principal ; or l'interface
+        web joue les parties dans un thread de fond."""
+        import threading
+
+        import reachy_tictactoe.tictactoe_playground as module
+
+        faux_cv = MagicMock()
+        monkeypatch.setattr(module, 'cv', faux_cv)
+        monkeypatch.setenv('DISPLAY', ':0')
+
+        erreurs = []
+
+        def dans_un_thread():
+            try:
+                playground.display_board(empty_board())
+            except Exception as e:  # pragma: no cover
+                erreurs.append(e)
+
+        t = threading.Thread(target=dans_un_thread)
+        t.start()
+        t.join(timeout=5)
+
+        assert not erreurs
+        faux_cv.imshow.assert_not_called()
+
+    def test_affichage_desactivable_par_variable_d_environnement(
             self, playground, monkeypatch):
         import reachy_tictactoe.tictactoe_playground as module
 
         faux_cv = MagicMock()
-        faux_cv.imshow.side_effect = RuntimeError('highgui indisponible')
-        monkeypatch.setattr(module, 'cv', faux_cv, raising=False)
+        monkeypatch.setattr(module, 'cv', faux_cv)
+        monkeypatch.setenv('DISPLAY', ':0')
+        monkeypatch.setenv('REACHY_TTT_NO_DISPLAY', '1')
 
+        playground.display_board(empty_board())
+
+        faux_cv.imshow.assert_not_called()
+
+    def test_imshow_est_appele_quand_tout_va_bien(self, playground, monkeypatch):
+        import reachy_tictactoe.tictactoe_playground as module
+
+        faux_cv = MagicMock()
+        monkeypatch.setattr(module, 'cv', faux_cv)
+        monkeypatch.setenv('DISPLAY', ':0')
+        monkeypatch.delenv('REACHY_TTT_NO_DISPLAY', raising=False)
+
+        playground.display_board(empty_board())
+
+        assert faux_cv.imshow.called
+
+
+class TestAffichageDefaillant:
+
+    @pytest.fixture
+    def cv_qui_echoue(self, monkeypatch):
+        """Écran disponible, mais imshow lève une exception Python."""
+        import reachy_tictactoe.tictactoe_playground as module
+
+        faux_cv = MagicMock()
+        faux_cv.imshow.side_effect = RuntimeError('highgui indisponible')
+        monkeypatch.setattr(module, 'cv', faux_cv)
+        monkeypatch.setenv('DISPLAY', ':0')
+        monkeypatch.delenv('REACHY_TTT_NO_DISPLAY', raising=False)
+        return faux_cv
+
+    def test_une_erreur_d_affichage_n_interrompt_pas_la_partie(
+            self, playground, cv_qui_echoue):
         # Ne doit pas lever.
         playground.display_board(empty_board(), current_player='robot')
 
     def test_l_affichage_ne_reessaie_pas_indefiniment(
-            self, playground, monkeypatch):
-        """Sans écran, la boucle appelle display_board plusieurs fois par
-        seconde : réessayer à chaque fois inonderait les logs."""
-        import reachy_tictactoe.tictactoe_playground as module
-
-        faux_cv = MagicMock()
-        faux_cv.imshow.side_effect = RuntimeError('highgui indisponible')
-        monkeypatch.setattr(module, 'cv', faux_cv, raising=False)
-
+            self, playground, cv_qui_echoue):
+        """La boucle appelle display_board plusieurs fois par seconde :
+        réessayer à chaque fois inonderait les logs."""
         for _ in range(5):
             playground.display_board(empty_board())
 
-        assert faux_cv.imshow.call_count == 1, (
+        assert cv_qui_echoue.imshow.call_count == 1, (
             'l\'affichage doit se désactiver après le premier échec'
         )
 

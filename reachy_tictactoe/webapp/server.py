@@ -22,6 +22,64 @@ logger = logging.getLogger('reachy.tictactoe.webapp')
 STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
 
 
+#: Couleurs BGR de la superposition, cohérentes avec la charte MIA.
+_OVERLAY_BOARD = (92, 58, 26)        # navy #1a3a5c
+_OVERLAY_CASE = (90, 96, 181)        # terracotta #b5605a
+
+
+def board_rects():
+    """Zone du plateau et des 9 cases, en pixels de l'image PLEIN CADRE.
+
+    ⚠️ ``BOARD_CASES`` est exprimé relativement au plateau recadré, alors
+    que ``BOARD_POSITION`` l'est dans l'image entière : l'offset est
+    appliqué ici, une fois pour toutes.
+    """
+    from .. import config
+    board = config.BOARD_POSITION
+    dx, dy = board['left_x'], board['top_y']
+    zone = {'x': dx, 'y': dy,
+            'width': board['right_x'] - dx,
+            'height': board['bottom_y'] - dy}
+    # BOARD_CASES : (left, right, top, bottom) par case.
+    cases = [
+        {'x': int(left) + dx, 'y': int(top) + dy,
+         'width': int(right) - int(left), 'height': int(bottom) - int(top)}
+        for row in config.BOARD_CASES
+        for left, right, top, bottom in row
+    ]
+    return zone, cases
+
+
+def _annotate(frame, crop=False, overlay=False, margin=0.06):
+    """Superpose les zones de calibration et/ou recadre sur le plateau."""
+    zone, cases = board_rects()
+    image = frame.copy()
+
+    if overlay:
+        cv.rectangle(image, (zone['x'], zone['y']),
+                     (zone['x'] + zone['width'], zone['y'] + zone['height']),
+                     _OVERLAY_BOARD, 2)
+        for i, case in enumerate(cases, start=1):
+            cv.rectangle(image, (case['x'], case['y']),
+                         (case['x'] + case['width'], case['y'] + case['height']),
+                         _OVERLAY_CASE, 2)
+            cv.putText(image, str(i), (case['x'] + 4, case['y'] + 18),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.5, _OVERLAY_CASE, 1)
+
+    if crop:
+        h, w = image.shape[:2]
+        mx = int(zone['width'] * margin)
+        my = int(zone['height'] * margin)
+        x1 = max(0, zone['x'] - mx)
+        y1 = max(0, zone['y'] - my)
+        x2 = min(w, zone['x'] + zone['width'] + mx)
+        y2 = min(h, zone['y'] + zone['height'] + my)
+        if x2 > x1 and y2 > y1:
+            image = image[y1:y2, x1:x2]
+
+    return image
+
+
 def _snapshot(session, controller):
     """État complet consommé par l'interface."""
     game = asdict(session.state)
@@ -72,36 +130,35 @@ def create_app(session, controller):
             raise HTTPException(status_code=409, detail=str(e))
         return {'started': 'moves_check'}
 
+    @app.post('/api/stop', status_code=202)
+    def stop_action():
+        """Interrompt l'action en cours, partie ou parcours (coopératif)."""
+        action = controller.stop()
+        if action is None:
+            raise HTTPException(status_code=409,
+                                detail='Aucune action en cours à arrêter')
+        return {'stopping': action}
+
     @app.get('/api/calibration')
     def calibration():
-        """Zones de calibration, en pixels de l'image PLEIN CADRE.
-
-        Attention au repère : ``BOARD_CASES`` est exprimé relativement au
-        plateau recadré, alors que ``BOARD_POSITION`` l'est dans l'image
-        entière. On applique donc l'offset ici, pour que les rectangles
-        puissent se superposer directement à ``/api/camera.jpg``.
-        """
-        from .. import config
-        board = config.BOARD_POSITION
-        dx, dy = board['left_x'], board['top_y']
-        return {
-            'board': {
-                'x': dx, 'y': dy,
-                'width': board['right_x'] - dx,
-                'height': board['bottom_y'] - dy,
-            },
-            # BOARD_CASES : (left, right, top, bottom) par case.
-            'cases': [
-                {'x': int(left) + dx, 'y': int(top) + dy,
-                 'width': int(right) - int(left),
-                 'height': int(bottom) - int(top)}
-                for row in config.BOARD_CASES
-                for left, right, top, bottom in row
-            ],
-        }
+        """Zones de calibration, en pixels de l'image PLEIN CADRE."""
+        zone, cases = board_rects()
+        return {'board': zone, 'cases': cases}
 
     @app.get('/api/camera.jpg')
-    def camera():
+    def camera(crop: bool = False, overlay: bool = False, margin: float = 0.06):
+        """Image de la caméra droite.
+
+        Args:
+            crop: recadrer sur la zone calibrée du plateau. La caméra voit
+                bien plus large que le jeu (bureau, clavier…) ; le recadrage
+                donne une vue centrée sur le plateau.
+            overlay: dessiner la zone du plateau et les 9 cases telles que
+                la vision les découpe — c'est ce qui permet de VOIR si la
+                calibration est juste.
+            margin: marge autour du plateau lors du recadrage, en fraction
+                de sa taille (0.06 = 6 %).
+        """
         frame = getattr(session.playground.reachy.right_camera,
                         'last_frame', None)
         if frame is None:
@@ -109,6 +166,10 @@ def create_app(session, controller):
             # pile dans le navigateur.
             raise HTTPException(status_code=503,
                                 detail='Aucune image de la caméra')
+
+        if overlay or crop:
+            frame = _annotate(frame, crop=crop, overlay=overlay, margin=margin)
+
         ok, buffer = cv.imencode('.jpg', frame,
                                  [int(cv.IMWRITE_JPEG_QUALITY), 80])
         if not ok:

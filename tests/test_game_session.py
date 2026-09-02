@@ -123,7 +123,7 @@ class TestEtatPublie:
         plateau = EMPTY.copy()
         plateau[4] = CUBE
 
-        def jouer(playground, report=None):
+        def jouer(playground, report=None, should_stop=None):
             report(status='playing', board=plateau, current_player='human')
             return 'nobody'
 

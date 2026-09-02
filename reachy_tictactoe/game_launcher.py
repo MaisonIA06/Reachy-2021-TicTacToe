@@ -37,7 +37,7 @@ STABLE_THRESHOLD = 3          # Nombre d'analyses identiques avant de ralentir
 DOUBLE_CHECK_DELAY = 0.6
 
 
-def run_game_loop(tictactoe_playground, report=None):
+def run_game_loop(tictactoe_playground, report=None, should_stop=None):
     """
     Boucle principale du jeu avec fréquence d'analyse adaptative.
 
@@ -49,6 +49,10 @@ def run_game_loop(tictactoe_playground, report=None):
         report: callable optionnel ``report(**changes)`` appelé à chaque
             étape marquante (plateau, joueur courant, issue). Sert à
             alimenter une interface sans que la boucle la connaisse.
+        should_stop: callable optionnel renvoyant True pour interrompre la
+            partie. Arrêt COOPÉRATIF, vérifié entre deux étapes : on
+            n'interrompt jamais le bras en plein mouvement. Retourne
+            alors ``'stopped'``.
 
     Returns:
         str: Le gagnant ('robot', 'human', 'nobody'), ou 'aborted' si la
@@ -61,6 +65,9 @@ def run_game_loop(tictactoe_playground, report=None):
         if report is not None:
             report(**changes)
 
+    def arret_demande():
+        return should_stop is not None and should_stop()
+
     # Variables pour l'analyse adaptative
     last_analyzed_board = None
     unchanged_count = 0
@@ -69,6 +76,11 @@ def run_game_loop(tictactoe_playground, report=None):
     # Attendre que le plateau soit nettoyé et prêt
     publish(status='playing', message='En attente d\'un plateau vide')
     while True:
+        if arret_demande():
+            logger.info('Game stopped while waiting for an empty board')
+            publish(message='Partie annulée')
+            return 'stopped'
+
         board = tictactoe_playground.analyze_board()
 
         logger.info(
@@ -107,8 +119,16 @@ def run_game_loop(tictactoe_playground, report=None):
 
     # Boucle de jeu principale avec analyse adaptative
     while True:
+        # Arrêt coopératif : en début de tour, jamais en plein mouvement.
+        if arret_demande():
+            logger.info('Game stopped on request')
+            publish(board=last_board, current_player=None,
+                    message='Partie annulée')
+            return 'stopped'
+
         current_time = time.time()
-        
+
+
         # ====================================================================
         # OPTIMISATION: Fréquence d'analyse adaptative
         # ====================================================================
@@ -271,6 +291,7 @@ class GameSession:
         self._state = GameState()
         self._lock = threading.Lock()
         self._listeners = []
+        self._stop_requested = threading.Event()
 
     @property
     def playground(self):
@@ -302,16 +323,25 @@ class GameSession:
                 # morte) ne doit jamais interrompre la partie en cours.
                 logger.warning(f'State listener failed: {e}')
 
-    def play_one_game(self) -> str:
+    def play_one_game(self, reset_stop=True) -> str:
         """Joue UNE partie, puis repose le bras et coupe le couple.
 
+        Args:
+            reset_stop: oublier une demande d'arrêt antérieure. Les
+                appelants qui l'ont déjà fait AVANT de publier l'action
+                (``RobotController``) passent False, sinon une demande
+                arrivée entre-temps serait effacée ici.
+
         Returns:
-            str: 'robot', 'human', 'nobody' ou 'aborted'.
+            str: 'robot', 'human', 'nobody', 'aborted' ou 'stopped'.
         """
+        if reset_stop:
+            self.reset_stop()
         self._publish(status='playing', winner=None, message='',
                       board=(0,) * 9, current_player=None)
         try:
-            winner = self._game_loop(self._playground, report=self._publish)
+            winner = self._game_loop(self._playground, report=self._publish,
+                                     should_stop=self.stop_requested)
         except Exception as e:
             self._publish(status='error', message=str(e))
             raise
@@ -330,6 +360,27 @@ class GameSession:
                 self.rest()
             except Exception as e:
                 logger.error(f'Mise au repos incomplète : {e}', exc_info=True)
+
+    def request_stop(self):
+        """Demande l'arrêt de l'action en cours (coopératif).
+
+        Le bras n'est jamais interrompu en plein mouvement : la boucle
+        s'arrête entre deux étapes, puis repose le bras normalement.
+        """
+        logger.info('Arrêt demandé')
+        self._stop_requested.set()
+
+    def reset_stop(self):
+        """Oublie une demande d'arrêt précédente.
+
+        À appeler AVANT de déclarer une action en cours, sinon une demande
+        arrivée entre-temps serait effacée par le démarrage de l'action.
+        """
+        self._stop_requested.clear()
+
+    def stop_requested(self):
+        """L'arrêt a-t-il été demandé ? (à passer comme ``should_stop``)"""
+        return self._stop_requested.is_set()
 
     def rest(self):
         """Repose le bras et relâche les moteurs (refroidissement)."""

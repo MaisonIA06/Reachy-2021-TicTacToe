@@ -5,6 +5,8 @@ Ce module gère la logique du jeu et le contrôle du robot Reachy V1
 import numpy as np
 import cv2 as cv
 import logging
+import sys
+import threading
 import time
 import os
 
@@ -52,6 +54,31 @@ class PawnNotGrabbed(Exception):
     marquerait la case d'un cube inexistant, la vision verrait autre chose,
     et l'humain serait accusé de tricher.
     """
+
+
+def display_possible():
+    """Peut-on ouvrir une fenêtre OpenCV SANS risquer de tuer le process ?
+
+    ⚠️ Qt ne lève pas d'exception Python quand l'affichage est impossible :
+    il appelle ``abort()`` et le processus meurt. Un ``try/except`` autour
+    de ``cv.imshow`` ne protège donc de RIEN — constaté en production le
+    2026-09-02, une partie lancée depuis l'interface web a tué le serveur
+    (« qt.qpa.xcb: could not connect to display »). Il faut décider AVANT
+    d'appeler.
+
+    Trois cas où l'on s'abstient :
+    - ``REACHY_TTT_NO_DISPLAY`` positionnée (désactivation explicite) ;
+    - hors thread principal — highgui n'y est pas supporté, et l'interface
+      web joue les parties dans un thread de fond ;
+    - sous Linux sans ``DISPLAY`` (serveur lancé en SSH).
+    """
+    if os.environ.get('REACHY_TTT_NO_DISPLAY'):
+        return False
+    if threading.current_thread() is not threading.main_thread():
+        return False
+    if sys.platform.startswith('linux') and not os.environ.get('DISPLAY'):
+        return False
+    return True
 
 
 def game_status_text(current_player=None, winner=None):
@@ -118,13 +145,23 @@ class TictactoePlayground(object):
         """
         if not self._display_available:
             return
+        # Décider AVANT d'appeler : Qt abort() le processus quand
+        # l'affichage est impossible (voir display_possible()).
+        if not display_possible():
+            self._display_available = False
+            logger.info(
+                'Affichage OpenCV désactivé : pas d\'écran utilisable '
+                '(DISPLAY absent, thread de fond, ou REACHY_TTT_NO_DISPLAY). '
+                'La partie continue sans fenêtre.'
+            )
+            return
         try:
             self._draw_board(board, current_player, winner)
         except Exception as e:
             self._display_available = False
             logger.warning(
                 f'Affichage OpenCV désactivé ({e}) — la partie continue '
-                f'sans fenêtre (pas d\'écran, ou thread de fond).'
+                f'sans fenêtre.'
             )
 
     def _draw_board(self, board, current_player=None, winner=None):
@@ -195,9 +232,15 @@ class TictactoePlayground(object):
         cv.waitKey(1)  # Nécessaire pour mettre à jour l'affichage
     
     def close_display(self):
-        """Ferme la fenêtre d'affichage"""
-        import cv2 as cv
-        cv.destroyAllWindows()
+        """Ferme la fenêtre d'affichage (sans risque si elle n'existe pas)."""
+        # destroyAllWindows passe aussi par Qt : même précaution que
+        # display_board, on n'appelle pas si l'affichage est indisponible.
+        if not self._display_available or not display_possible():
+            return
+        try:
+            cv.destroyAllWindows()
+        except Exception as e:
+            logger.warning(f'Fermeture de la fenêtre impossible : {e}')
         
     def setup(self):
         """Configure le robot pour le jeu"""
@@ -356,7 +399,7 @@ class TictactoePlayground(object):
             self._failed_analyses = 0
         return None
 
-    def run_moves_check(self, on_progress=None):
+    def run_moves_check(self, on_progress=None, should_stop=None):
         """Parcourt les 9 cases À VIDE pour vérifier le positionnement.
 
         Rejoue l'enchaînement exact d'un coup (``grab_1`` → ``lift`` →
@@ -368,6 +411,10 @@ class TictactoePlayground(object):
         Args:
             on_progress: callable optionnel ``on_progress(case, total)``
                 appelé avant chaque case, pour l'interface.
+            should_stop: callable optionnel renvoyant True pour
+                interrompre le parcours. Vérifié ENTRE deux cases, jamais
+                en pleine trajectoire — un parcours mal visé doit pouvoir
+                être stoppé sans tuer le serveur.
         """
         logger.info('Moves check: parcours des 9 cases')
         # Le bras sort d'un rest() : il est compliant. Sans réactiver le
@@ -375,6 +422,9 @@ class TictactoePlayground(object):
         self.safe_turn_on('r_arm')
         try:
             for case in range(1, 10):
+                if should_stop is not None and should_stop():
+                    logger.info(f'Moves check interrompu avant la case {case}')
+                    break
                 if on_progress is not None:
                     on_progress(case, 9)
                 logger.info(f'Moves check: case {case}/9')

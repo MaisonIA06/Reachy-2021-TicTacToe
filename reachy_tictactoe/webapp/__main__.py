@@ -24,8 +24,9 @@ def main():
         description="Interface web de pilotage du TicTacToe Reachy")
     parser.add_argument('--host', default='localhost',
                         help='Adresse du robot Reachy (défaut: localhost)')
-    parser.add_argument('--port', type=int, default=8000,
-                        help='Port d\'écoute du serveur (défaut: 8000)')
+    # 8000 est déjà utilisé sur le NUC du robot.
+    parser.add_argument('--port', type=int, default=8080,
+                        help='Port d\'écoute du serveur (défaut: 8080)')
     parser.add_argument('--bind', default='0.0.0.0',
                         help='Interface d\'écoute (défaut: 0.0.0.0, tout le réseau)')
     args = parser.parse_args()
@@ -38,6 +39,12 @@ def main():
     with TictactoePlayground(host=args.host) as playground:
         playground.setup()
         session = GameSession(playground)
+
+        # setup() alimente bras et tête ; l'interface peut ensuite attendre
+        # des heures sans qu'on clique. On repose donc immédiatement : les
+        # moteurs ne doivent pas chauffer à ne rien faire.
+        session.rest()
+
         app = create_app(session=session,
                          controller=RobotController(session))
 
