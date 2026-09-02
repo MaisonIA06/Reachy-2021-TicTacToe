@@ -77,15 +77,20 @@
         }
 
         /* Titre en dégradé, repris de la charte des autres jeux MIA
-           (Chatbot Éternel) : blanc cassé -> terracotta clair. */
+           (Chatbot Éternel) : blanc cassé -> terracotta.
+           ⚠️ `background-clip: text` découpe le dégradé dans la BOÎTE de
+           l'élément, pas dans le texte. Un h1 en pleine largeur d'en-tête
+           ne montrerait au texte que le tout début du dégradé — donc du
+           blanc uni. `width: fit-content` fait épouser la boîte au texte,
+           et le dégradé se déploie sur toute sa longueur. */
         .app-header h1 {
-            font-size: clamp(1.3rem, 2.8vw, 2rem);
+            width: fit-content;
+            font-size: clamp(1.35rem, 2.8vw, 2.1rem);
             font-weight: 800;
             letter-spacing: -0.5px;
-            background: linear-gradient(100deg,
+            background: linear-gradient(115deg,
                         var(--text-primary) 0%,
-                        var(--text-primary) 25%,
-                        var(--mia-terracotta-light) 78%,
+                        var(--mia-terracotta-light) 62%,
                         var(--mia-terracotta) 100%);
             -webkit-background-clip: text;
             background-clip: text;
@@ -95,9 +100,10 @@
         }
 
         .app-header p {
-            font-size: 0.86rem;
-            color: var(--text-secondary);
-            font-weight: 500;
+            font-size: 0.95rem;
+            font-weight: 400;
+            font-style: italic;
+            color: var(--text-muted);
         }
 
         .header-text { flex: 1; min-width: 0; }
