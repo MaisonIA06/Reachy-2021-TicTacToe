@@ -549,6 +549,80 @@
         .toast.info { background: rgba(42, 90, 140, 0.30); border-color: var(--mia-navy-light); }
         .toast.error { background: rgba(240, 112, 112, 0.20); border-color: #f07070; }
 
+        /* -------- Panneau de calibration -------- */
+        .calib {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(6, 16, 28, 0.82);
+            backdrop-filter: blur(6px);
+        }
+
+        .calib[hidden] { display: none; }
+
+        .calib-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            width: min(1100px, 100%);
+            max-height: 100%;
+            padding: 20px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: rgba(20, 45, 75, 0.92);
+            box-shadow: var(--shadow-card);
+        }
+
+        .calib-head { display: flex; align-items: flex-start; gap: 16px; }
+        .calib-head > div:first-child { flex: 1; min-width: 0; }
+        .calib-title { font-size: 1.15rem; font-weight: 800; }
+
+        .calib-help {
+            font-size: 0.86rem;
+            color: var(--text-secondary);
+            margin-top: 3px;
+        }
+
+        .calib-close { width: auto; padding: 9px 16px; font-size: 0.85rem; }
+
+        .calib-stage {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(13, 40, 64, 0.6);
+            touch-action: none;   /* le doigt trace, il ne fait pas défiler */
+        }
+
+        .calib-stage img {
+            max-width: 100%;
+            max-height: 62vh;
+            display: block;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        /* Le SVG se superpose EXACTEMENT à l'image affichée : son viewBox
+           est en pixels image, donc les coordonnées manipulées ici sont
+           déjà celles que le serveur attend, sans conversion d'échelle. */
+        #calib-svg { position: absolute; pointer-events: none; }
+
+        .calib-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        .calib-actions .btn { width: auto; flex: 1; min-width: 190px; }
+
+        @media (max-width: 620px) {
+            .calib-panel { padding: 14px; }
+            .calib-actions .btn { min-width: 100%; }
+        }
+
         .footer {
             text-align: center;
             font-size: 0.76rem;
@@ -686,6 +760,39 @@
         <div class="footer">MIA — La Maison de l'IA · Reachy 2021</div>
     </div>
 
+    <!-- ================= Calibration ================= -->
+    <div class="calib" id="calib" hidden>
+        <div class="calib-panel">
+            <div class="calib-head">
+                <div>
+                    <div class="calib-title">Calibration du plateau</div>
+                    <div class="calib-help" id="calib-help"></div>
+                </div>
+                <button class="btn secondary calib-close" id="calib-cancel">Fermer</button>
+            </div>
+
+            <div class="calib-stage" id="calib-stage">
+                <img id="calib-img" alt="Vue de la caméra pour la calibration">
+                <svg id="calib-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+            </div>
+
+            <div class="calib-actions">
+                <button class="btn secondary" id="calib-redraw">
+                    <span class="icon">✎</span>
+                    <span class="label"><span>Retracer le plateau</span></span>
+                </button>
+                <button class="btn secondary" id="calib-grid">
+                    <span class="icon">⊞</span>
+                    <span class="label"><span>Grille automatique</span></span>
+                </button>
+                <button class="btn primary" id="calib-save">
+                    <span class="icon">✓</span>
+                    <span class="label"><span>Enregistrer</span></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const PIECES = { 0: '', 1: '✕', 2: '◯' };
         const CLASSES = { 0: '', 1: 'cube', 2: 'cylinder' };
@@ -812,8 +919,242 @@
         btnGame.onclick = () => post('/api/game');
         btnMoves.onclick = () => post('/api/moves-check');
         btnStop.onclick = () => post('/api/stop');
-        btnCalib.onclick = () => showToast(
-            'Calibration : à lancer depuis le robot pour le moment (clics souris requis).', 'info');
+        // ================= Calibration =================
+        // Le SVG a pour viewBox les dimensions RÉELLES de l'image caméra :
+        // tout ce qui est manipulé ici est déjà en pixels image, il n'y a
+        // donc aucune conversion d'échelle à faire avant l'envoi.
+        const NS = 'http://www.w3.org/2000/svg';
+        const calib = document.getElementById('calib');
+        const calibImg = document.getElementById('calib-img');
+        const calibSvg = document.getElementById('calib-svg');
+        const calibStage = document.getElementById('calib-stage');
+        const calibHelp = document.getElementById('calib-help');
+
+        let calibImage = { width: 0, height: 0 };
+        let calibBoard = null;
+        let calibCases = [];
+        let drawing = null;
+        let dragging = null;
+
+        function imagePoint(evt) {
+            // Le SVG est calé sur l'image affichée : un simple rapport de
+            // taille suffit pour repasser en pixels image.
+            const r = calibImg.getBoundingClientRect();
+            const p = evt.touches ? evt.touches[0] : evt;
+            const x = (p.clientX - r.left) / r.width * calibImage.width;
+            const y = (p.clientY - r.top) / r.height * calibImage.height;
+            return {
+                x: Math.max(0, Math.min(calibImage.width, Math.round(x))),
+                y: Math.max(0, Math.min(calibImage.height, Math.round(y))),
+            };
+        }
+
+        function autoGrid() {
+            if (!calibBoard) return;
+            const w = calibBoard.width / 3, h = calibBoard.height / 3;
+            calibCases = [];
+            for (let r = 0; r < 3; r++) {
+                for (let c = 0; c < 3; c++) {
+                    // Léger retrait : on vise l'intérieur de la case, pas
+                    // ses traits noirs, que le classifieur confondrait.
+                    const mx = w * 0.08, my = h * 0.08;
+                    calibCases.push({
+                        x: Math.round(calibBoard.x + c * w + mx),
+                        y: Math.round(calibBoard.y + r * h + my),
+                        width: Math.round(w - 2 * mx),
+                        height: Math.round(h - 2 * my),
+                    });
+                }
+            }
+            drawCalib();
+        }
+
+        function drawCalib() {
+            calibSvg.setAttribute('viewBox',
+                `0 0 ${calibImage.width} ${calibImage.height}`);
+            const r = calibImg.getBoundingClientRect();
+            calibSvg.style.width = r.width + 'px';
+            calibSvg.style.height = r.height + 'px';
+            calibSvg.innerHTML = '';
+
+            if (calibBoard) {
+                const b = document.createElementNS(NS, 'rect');
+                b.setAttribute('x', calibBoard.x);
+                b.setAttribute('y', calibBoard.y);
+                b.setAttribute('width', calibBoard.width);
+                b.setAttribute('height', calibBoard.height);
+                b.setAttribute('fill', 'none');
+                b.setAttribute('stroke', '#8fb8e0');
+                b.setAttribute('stroke-width', 3);
+                b.setAttribute('stroke-dasharray', '10 6');
+                calibSvg.appendChild(b);
+            }
+
+            calibCases.forEach((c, i) => {
+                const g = document.createElementNS(NS, 'g');
+                g.style.pointerEvents = 'all';
+                g.style.cursor = 'move';
+
+                const rect = document.createElementNS(NS, 'rect');
+                rect.setAttribute('x', c.x);
+                rect.setAttribute('y', c.y);
+                rect.setAttribute('width', c.width);
+                rect.setAttribute('height', c.height);
+                rect.setAttribute('fill', 'rgba(181, 96, 90, 0.18)');
+                rect.setAttribute('stroke', '#d4847e');
+                rect.setAttribute('stroke-width', 3);
+                g.appendChild(rect);
+
+                const t = document.createElementNS(NS, 'text');
+                t.setAttribute('x', c.x + 6);
+                t.setAttribute('y', c.y + 22);
+                t.setAttribute('fill', '#fff');
+                t.setAttribute('font-size', '18');
+                t.setAttribute('font-weight', '800');
+                t.textContent = i + 1;
+                g.appendChild(t);
+
+                // Poignée de redimensionnement, coin bas-droite.
+                const h = document.createElementNS(NS, 'rect');
+                h.setAttribute('x', c.x + c.width - 11);
+                h.setAttribute('y', c.y + c.height - 11);
+                h.setAttribute('width', 14);
+                h.setAttribute('height', 14);
+                h.setAttribute('fill', '#d4847e');
+                h.style.cursor = 'nwse-resize';
+                h.addEventListener('pointerdown', e => startDrag(e, i, 'resize'));
+                g.appendChild(h);
+
+                g.addEventListener('pointerdown', e => {
+                    if (e.target !== h) startDrag(e, i, 'move');
+                });
+                calibSvg.appendChild(g);
+            });
+        }
+
+        function startDrag(evt, index, mode) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            calibStage.setPointerCapture?.(evt.pointerId);
+            const p = imagePoint(evt);
+            const c = calibCases[index];
+            dragging = { index, mode, ox: p.x - c.x, oy: p.y - c.y };
+        }
+
+        function setHelp(text) { calibHelp.textContent = text; }
+
+        function refreshHelp() {
+            setHelp(calibBoard
+                ? 'Ajustez chaque case : glissez pour déplacer, tirez le coin pour redimensionner.'
+                : 'Tracez d\'abord le cadre du plateau en glissant sur l\'image.');
+        }
+
+        calibStage.addEventListener('pointerdown', e => {
+            if (dragging || calibBoard) return;
+            // Sans preventDefault, le glisser-déposer natif de l'image
+            // capte le geste (Firefox) et le tracé reste bloqué.
+            e.preventDefault();
+            calibStage.setPointerCapture?.(e.pointerId);
+            drawing = imagePoint(e);
+        });
+
+        window.addEventListener('pointermove', e => {
+            if (drawing) {
+                const p = imagePoint(e);
+                calibBoard = {
+                    x: Math.min(drawing.x, p.x), y: Math.min(drawing.y, p.y),
+                    width: Math.abs(p.x - drawing.x),
+                    height: Math.abs(p.y - drawing.y),
+                };
+                drawCalib();
+            } else if (dragging) {
+                const p = imagePoint(e);
+                const c = calibCases[dragging.index];
+                if (dragging.mode === 'move') {
+                    c.x = p.x - dragging.ox;
+                    c.y = p.y - dragging.oy;
+                } else {
+                    c.width = Math.max(8, p.x - c.x);
+                    c.height = Math.max(8, p.y - c.y);
+                }
+                drawCalib();
+            }
+        });
+
+        window.addEventListener('pointerup', () => {
+            if (drawing) {
+                drawing = null;
+                if (calibBoard && calibBoard.width > 20 && calibBoard.height > 20) {
+                    autoGrid();
+                } else {
+                    calibBoard = null;
+                    drawCalib();
+                }
+                refreshHelp();
+            }
+            dragging = null;
+        });
+
+        async function openCalib() {
+            const data = await (await fetch('/api/calibration')).json();
+
+            // Pas de dimensions = pas d'image : mieux vaut refuser que
+            // deviner. Une échelle supposée fausserait TOUTES les
+            // coordonnées enregistrées, en silence.
+            if (!data.image || !data.image.width || !data.image.height) {
+                showToast('Calibration impossible : aucune image de la caméra',
+                          'error');
+                return;
+            }
+            calibImage = data.image;
+            calibBoard = data.board.width ? data.board : null;
+            calibCases = calibBoard ? data.cases : [];
+
+            calibImg.onload = () => drawCalib();
+            calibImg.onerror = () => {
+                calib.hidden = true;
+                showToast('Image de la caméra indisponible', 'error');
+            };
+            calibImg.src = '/api/camera.jpg?t=' + Date.now();
+            calib.hidden = false;
+            if (calibImg.complete && calibImg.naturalWidth) drawCalib();
+            refreshHelp();
+        }
+
+        btnCalib.onclick = () => openCalib().catch(
+            () => showToast('Calibration indisponible', 'error'));
+
+        document.getElementById('calib-cancel').onclick = () => calib.hidden = true;
+        document.getElementById('calib-grid').onclick = autoGrid;
+        document.getElementById('calib-redraw').onclick = () => {
+            calibBoard = null;
+            calibCases = [];
+            drawCalib();
+            refreshHelp();
+        };
+
+        document.getElementById('calib-save').onclick = async () => {
+            if (!calibBoard || calibCases.length !== 9) {
+                showToast('Tracez le plateau avant d\'enregistrer', 'error');
+                return;
+            }
+            const r = await fetch('/api/calibration', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ board: calibBoard, cases: calibCases }),
+            });
+            if (r.ok) {
+                calib.hidden = true;
+                showToast('Calibration enregistrée et active', 'info');
+            } else {
+                const d = await r.json().catch(() => ({}));
+                showToast(d.detail || 'Enregistrement refusé', 'error');
+            }
+        };
+
+        window.addEventListener('resize', () => {
+            if (!calib.hidden) drawCalib();
+        });
 
         // -------- Liaison avec le serveur --------
         // Le serveur renvoie l'état au moins toutes les 8 s (battement) :

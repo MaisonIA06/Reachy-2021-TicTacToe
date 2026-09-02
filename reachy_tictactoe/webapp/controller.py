@@ -8,6 +8,7 @@ minutes, la requête HTTP ne peut pas attendre sa fin.
 """
 import logging
 import threading
+from contextlib import contextmanager
 
 logger = logging.getLogger('reachy.tictactoe.webapp')
 
@@ -79,6 +80,25 @@ class RobotController:
             return None
         self._session.request_stop()
         return action
+
+    @contextmanager
+    def reserve(self, name):
+        """Occupe le robot le temps d'une opération SYNCHRONE.
+
+        Tester ``running`` puis agir laisse une fenêtre : une partie
+        lancée entre les deux verrait, par exemple, la calibration
+        remplacée en plein ``analyze_board``. La réservation ferme cette
+        fenêtre en prenant la place de façon atomique.
+        """
+        with self._lock:
+            if self._running is not None:
+                raise RobotBusy(self._running)
+            self._running = name
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._running = None
 
     # -- Corps des actions ------------------------------------------------
 

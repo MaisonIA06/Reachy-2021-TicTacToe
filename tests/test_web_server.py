@@ -21,6 +21,9 @@ def client():
 
     session = MagicMock()
     session.state = GameState(status='idle', board=(0,) * 9)
+    # Sans cela, `last_frame` serait un MagicMock : le code le prendrait
+    # pour une vraie image et lirait des dimensions factices.
+    session.playground.reachy.right_camera.last_frame = None
     controller = MagicMock()
     controller.running = None
     controller.last_error = None
@@ -132,6 +135,77 @@ class TestBattementSSE:
         from reachy_tictactoe.webapp import server
 
         assert server.HEARTBEAT_SECONDS <= 10.0
+
+
+class TestEnregistrementDeCalibration:
+
+    @staticmethod
+    def _payload():
+        board = {'x': 100, 'y': 200, 'width': 300, 'height': 300}
+        w, h = 100, 100
+        cases = [{'x': 100 + c * w, 'y': 200 + r * h, 'width': w, 'height': h}
+                 for r in range(3) for c in range(3)]
+        return {'board': board, 'cases': cases}
+
+    def test_une_calibration_valide_est_enregistree(self, client, monkeypatch):
+        http, _, _ = client
+        vues = {}
+        monkeypatch.setattr(
+            'reachy_tictactoe.config.save_calibration',
+            lambda board_position, board_cases: vues.update(p=board_position))
+
+        reponse = http.put('/api/calibration', json=self._payload())
+
+        assert reponse.status_code == 200
+        assert vues['p'] == {'left_x': 100, 'right_x': 400,
+                             'top_y': 200, 'bottom_y': 500}
+
+    def test_une_calibration_invalide_est_refusee(self, client, monkeypatch):
+        http, _, _ = client
+        monkeypatch.setattr(
+            'reachy_tictactoe.config.save_calibration',
+            lambda **kw: pytest.fail('rien ne doit être écrit'))
+
+        payload = self._payload()
+        payload['cases'] = payload['cases'][:5]
+
+        assert http.put('/api/calibration', json=payload).status_code == 422
+
+    def test_pas_de_calibration_pendant_une_action(self, client, monkeypatch):
+        """Le bras bouge : recadrer la vision sous ses pieds n'a pas de sens."""
+        http, _, controller = client
+        controller.reserve.side_effect = RobotBusy('game')
+        monkeypatch.setattr(
+            'reachy_tictactoe.config.save_calibration',
+            lambda **kw: pytest.fail('rien ne doit être écrit'))
+
+        assert http.put('/api/calibration',
+                        json=self._payload()).status_code == 409
+
+    def test_la_reservation_du_robot_est_atomique(self, client, monkeypatch):
+        """L'enregistrement doit passer par reserve(), pas par un simple
+        test de `running` : entre le test et l'action, une partie pourrait
+        démarrer et voir la calibration changer sous elle."""
+        http, _, controller = client
+        monkeypatch.setattr(
+            'reachy_tictactoe.config.save_calibration', lambda **kw: None)
+
+        http.put('/api/calibration', json=self._payload())
+
+        controller.reserve.assert_called_once()
+
+    def test_les_dimensions_de_l_image_sont_exposees(self, client):
+        """L'interface convertit ses clics en pixels image : sans ces
+        dimensions elle ne peut pas faire la mise à l'échelle."""
+        import numpy as np
+
+        http, session, _ = client
+        session.playground.reachy.right_camera.last_frame = np.zeros(
+            (640, 480, 3), dtype=np.uint8)
+
+        image = http.get('/api/calibration').json()['image']
+
+        assert image == {'width': 480, 'height': 640}
 
 
 class TestCamera:

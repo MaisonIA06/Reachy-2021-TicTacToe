@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from .calibration import apply_calibration
 from .controller import RobotBusy
 
 logger = logging.getLogger('reachy.tictactoe.webapp')
@@ -159,7 +160,43 @@ def create_app(session, controller):
     def calibration():
         """Zones de calibration, en pixels de l'image PLEIN CADRE."""
         zone, cases = board_rects()
-        return {'board': zone, 'cases': cases}
+        frame = getattr(session.playground.reachy.right_camera,
+                        'last_frame', None)
+        height, width = (frame.shape[:2] if frame is not None else (None, None))
+        return {
+            'board': zone,
+            'cases': cases,
+            # L'interface doit convertir ses clics en pixels image : elle a
+            # besoin des dimensions réelles, pas de celles de l'affichage.
+            'image': {'width': width, 'height': height},
+        }
+
+    @app.put('/api/calibration')
+    def save_calibration(payload: dict):
+        """Enregistre une calibration et la rend active immédiatement.
+
+        La réservation du robot est atomique : tester ``running`` puis
+        agir laisserait une partie démarrer entre les deux et voir la
+        calibration changer en plein ``analyze_board``.
+        """
+        frame = getattr(session.playground.reachy.right_camera,
+                        'last_frame', None)
+        image = (None if frame is None
+                 else {'width': frame.shape[1], 'height': frame.shape[0]})
+        try:
+            with controller.reserve('calibration'):
+                board_position, _ = apply_calibration(
+                    payload['board'], payload['cases'], image=image)
+        except RobotBusy as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except KeyError as e:
+            raise HTTPException(status_code=422,
+                                detail=f'Champ manquant : {e}')
+        except (ValueError, TypeError) as e:
+            # TypeError : coordonnées non numériques (NaN sérialisé en
+            # null quand l'image n'a pas pu être mesurée côté navigateur).
+            raise HTTPException(status_code=422, detail=str(e))
+        return {'saved': board_position}
 
     @app.get('/api/camera.jpg')
     def camera(crop: bool = False, overlay: bool = False, margin: float = 0.06):
