@@ -15,6 +15,7 @@ from reachy_sdk.trajectory.interpolation import InterpolationMode
 from .vision import get_board_configuration, is_board_valid
 from .utils import piece2id, id2piece, piece2player
 from .moves import moves, rest_pos, base_pos
+from .motors import safe_turn_on as _safe_turn_on
 from .rl_agent import value_actions
 from . import behavior
 from .config import GRIPPER_OPEN, GRIPPER_CLOSED
@@ -168,7 +169,7 @@ class TictactoePlayground(object):
             self._preload_thread.start()
         
         # Activer les moteurs des antennes
-        self.reachy.turn_on('head')
+        self.safe_turn_on('head')
         
         # Position initiale des antennes
         goto(
@@ -321,7 +322,7 @@ class TictactoePlayground(object):
         # seulement si la tête n'y est pas déjà : la boucle de jeu
         # appelle cette méthode plusieurs fois par seconde.
         if not self._looking_at_board:
-            self.reachy.turn_on('head')
+            self.safe_turn_on('head')
             time.sleep(0.05)
             self.reachy.head.look_at(x=0.5, y=0, z=-0.6, duration=1.0)
             time.sleep(0.1)
@@ -551,8 +552,8 @@ class TictactoePlayground(object):
             box_index: Index de la case où placer le pion (1-9)
         """
         # Activer le bras droit
-        self.reachy.turn_on('r_arm')
-        
+        self.safe_turn_on('r_arm')
+
         # CRITIQUE: Forcer l'activation du gripper
         time.sleep(0.15)
         self.reachy.r_arm.r_gripper.compliant = False
@@ -639,18 +640,9 @@ class TictactoePlayground(object):
         )
         
         
-        # Placer le pion
+        # Placer le pion : play_trajectory pré-positionne lui-même sur le
+        # premier point (gripper filtré : CRITIQUE, pion tenu !)
         put = moves[f'put_{box_index}_smooth_10_kp']
-        
-        # Aller à la première position du mouvement (SANS gripper)
-        first_pos = {
-            joint_name: traj[0]
-            for joint_name, traj in put.items()
-            if 'gripper' not in joint_name.lower()
-        }
-        self.goto_position(first_pos, duration=0.5)
-        
-        # Jouer la trajectoire complète (CRITIQUE: filtrer le gripper!)
         self.play_trajectory(put, filter_gripper=True)
         
         # Maintenant on peut ouvrir la pince
@@ -871,9 +863,32 @@ class TictactoePlayground(object):
         # Déterminer la durée totale basée sur le nombre de points
         num_points = len(list(adapted_traj.values())[0])
         duration = num_points * 0.01  # 100 Hz
-        
+
         logger.info(f'Playing trajectory with {num_points} points ({duration:.1f}s)')
-        
+
+        # Pré-positionnement doux sur le premier point : la première consigne
+        # streamée à 100 Hz est un échelon brutal si le bras n'est pas déjà
+        # sur le départ de la trajectoire. Sauté si le bras est déjà proche.
+        first_point = {
+            joint_obj: float(np.atleast_1d(traj)[0])
+            for joint_obj, traj in adapted_traj.items()
+        }
+        try:
+            gaps = [
+                abs(float(joint_obj.present_position) - target)
+                for joint_obj, target in first_point.items()
+                if joint_obj.present_position is not None
+            ]
+            need_prepositioning = not gaps or max(gaps) > 3.0
+        except (TypeError, ValueError):
+            need_prepositioning = True
+        if need_prepositioning:
+            goto(
+                goal_positions=first_point,
+                duration=0.5,
+                interpolation_mode=InterpolationMode.MINIMUM_JERK,
+            )
+
         # Jouer la trajectoire en définissant goal_position directement (méthode native SDK 2021)
         for i in range(num_points):
             # Définir goal_position pour chaque joint simultanément
@@ -883,9 +898,13 @@ class TictactoePlayground(object):
             # Attendre 10ms pour maintenir la fréquence de 100 Hz
             time.sleep(0.01)
             
+    def safe_turn_on(self, part='r_arm'):
+        """Active le couple de ``part`` sans à-coup (voir ``motors.safe_turn_on``)."""
+        _safe_turn_on(self.reachy, part)
+
     def goto_base_position(self, duration=2.0):
         """Va à la position de base"""
-        self.reachy.turn_on('r_arm')
+        self.safe_turn_on('r_arm')
         time.sleep(0.05)
         
         self.goto_position(base_pos, duration)

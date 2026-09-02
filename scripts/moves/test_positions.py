@@ -6,6 +6,8 @@ from reachy_sdk import ReachySDK
 import time
 import argparse
 
+from reachy_tictactoe.motors import safe_turn_on
+
 def test_joint_positions(host='localhost'):
     """Test de lecture des positions avec diagnostic détaillé"""
     print("🔌 Connexion à Reachy...")
@@ -15,8 +17,8 @@ def test_joint_positions(host='localhost'):
     
     try:
         # Activer puis désactiver pour mode compliant
-        print("🔄 Initialisation des moteurs...")
-        reachy.turn_on('r_arm')
+        print("🔄 Initialisation des moteurs (sans à-coup)...")
+        safe_turn_on(reachy, 'r_arm')
         time.sleep(1.0)
         
         print("🔓 Passage en mode compliant...")

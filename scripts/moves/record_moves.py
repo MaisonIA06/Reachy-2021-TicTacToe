@@ -16,6 +16,8 @@ import time
 import os
 from reachy_sdk import ReachySDK
 
+from reachy_tictactoe.motors import safe_turn_on
+
 
 class MoveRecorder:
     """Enregistreur de mouvements pour Reachy"""
@@ -74,19 +76,19 @@ class MoveRecorder:
     def enable_compliant_mode(self):
         """Active le mode compliant sur le bras droit"""
         print("🔄 Initialisation des moteurs du bras droit...")
-        # D'abord activer pour réinitialiser les encodeurs
-        self.reachy.turn_on('r_arm')
+        # D'abord activer pour réinitialiser les encodeurs (sans à-coup)
+        safe_turn_on(self.reachy, 'r_arm')
         time.sleep(1.0)
-        
+
         print("🔓 Passage en mode compliant...")
         self.reachy.turn_off('r_arm')
         time.sleep(0.5)
         print("✅ Mode compliant activé - Vous pouvez maintenant déplacer le bras manuellement\n")
-        
+
     def disable_compliant_mode(self):
         """Désactive le mode compliant sur le bras droit"""
-        print("\n🔒 Désactivation du mode compliant...")
-        self.reachy.turn_on('r_arm')
+        print("\n🔒 Désactivation du mode compliant (sans à-coup)...")
+        safe_turn_on(self.reachy, 'r_arm')
         time.sleep(0.5)
         print("✅ Moteurs activés\n")
         

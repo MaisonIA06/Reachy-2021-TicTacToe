@@ -21,9 +21,12 @@ import numpy as np
 import time
 import os
 import glob
+import traceback
 from reachy_sdk import ReachySDK
 from reachy_sdk.trajectory import goto
 from reachy_sdk.trajectory.interpolation import InterpolationMode
+
+from reachy_tictactoe.motors import safe_turn_on
 
 
 class MoveTester:
@@ -39,7 +42,12 @@ class MoveTester:
         print(f"🔌 Connexion au robot Reachy ({host})...")
         self.reachy = ReachySDK(host=host)
         print("✅ Connecté au robot\n")
-        
+
+    def safe_turn_on(self, part='r_arm'):
+        """Active le couple sans à-coup (voir reachy_tictactoe.motors)."""
+        safe_turn_on(self.reachy, part)
+
+
     def load_move(self, filepath):
         """
         Charge un mouvement depuis un fichier .npz
@@ -118,15 +126,12 @@ class MoveTester:
             move_data: dict {joint_name: position_value}
             duration: Durée du mouvement
         """
-        # Créer le dictionnaire de positions
         goal_positions = {}
         
         for joint_name, value in move_data.items():
-            # Récupérer l'objet Joint (les noms sont déjà au format SDK 2021)
             joint_obj = self.get_joint_object(joint_name)
             
             if joint_obj is not None:
-                # Convertir degrés en radians si nécessaire
                 if isinstance(value, np.ndarray):
                     value = float(value)
                 
@@ -136,17 +141,33 @@ class MoveTester:
             print("❌ Aucun joint valide trouvé dans le mouvement")
             return False
         
-        # Exécuter le mouvement
         try:
             goto(
                 goal_positions=goal_positions,
                 duration=duration,
                 interpolation_mode=InterpolationMode.MINIMUM_JERK,
             )
-            time.sleep(duration)
+
+            # Vérification d'ATTEINTE de cible (goto est bloquant) : on
+            # compare position atteinte vs cible pour chaque joint — pas le
+            # déplacement, qui est légitimement nul si le bras y était déjà.
+            rates = {}
+            for joint_obj, target in goal_positions.items():
+                position = joint_obj.present_position
+                if position is None:
+                    continue
+                ecart = abs(position - target)
+                if ecart > 5.0:
+                    rates[joint_obj.name] = (position, target, ecart)
+            if rates:
+                print("   ⚠️  Cible NON atteinte (butée articulaire ? couple insuffisant ?) :")
+                for nom, (position, target, ecart) in rates.items():
+                    print(f"      {nom}: atteint {position:.1f}° / cible {target:.1f}° (écart {ecart:.1f}°)")
+
             return True
         except Exception as e:
             print(f"❌ Erreur lors de l'exécution : {e}")
+            traceback.print_exc()
             return False
     
     def play_trajectory(self, move_data):
@@ -173,8 +194,32 @@ class MoveTester:
         # Jouer la trajectoire en définissant goal_position directement
         num_points = len(list(trajectory.values())[0])
         print(f"▶️  Lecture de la trajectoire ({num_points} points à 100 Hz = {num_points/100:.1f}s)")
-        
+
         try:
+            # Pré-positionnement doux sur le premier point : sans cela, la
+            # première consigne streamée à 100 Hz est un échelon brutal si le
+            # bras n'est pas déjà sur le départ de la trajectoire.
+            # GRIPPER EXCLU (règle CLAUDE.md : ne jamais rejouer la pince
+            # d'un enregistrement, un pion peut être tenu). Sauté si le bras
+            # est déjà proche du départ (ex : lift → put en séquence).
+            first_point = {
+                j: float(np.atleast_1d(t)[0])
+                for j, t in trajectory.items()
+                if 'gripper' not in j.name.lower()
+            }
+            gaps = [
+                abs(j.present_position - target)
+                for j, target in first_point.items()
+                if j.present_position is not None
+            ]
+            if not gaps or max(gaps) > 3.0:
+                print("   Pré-positionnement sur le point de départ (1.5s)...")
+                goto(
+                    goal_positions=first_point,
+                    duration=1.5,
+                    interpolation_mode=InterpolationMode.MINIMUM_JERK,
+                )
+
             start_time = time.time()
             
             for i in range(num_points):
@@ -198,7 +243,6 @@ class MoveTester:
             
         except Exception as e:
             print(f"\n❌ Erreur lors de l'exécution : {e}")
-            import traceback
             traceback.print_exc()
             return False
     
@@ -279,9 +323,9 @@ class MoveTester:
         
         # Activer le bras
         print("\n🔌 Activation du bras droit...")
-        self.reachy.turn_on('r_arm')
+        self.safe_turn_on('r_arm')
         time.sleep(0.5)
-        
+
         # Jouer le mouvement
         print(f"▶️  Exécution du mouvement...")
         
@@ -421,8 +465,17 @@ class MoveTester:
             return False
 
         print("\n🔌 Activation du bras droit...")
-        self.reachy.turn_on('r_arm')
+        self.safe_turn_on('r_arm')
         time.sleep(0.5)
+
+        # Vérifier que les moteurs sont bien activés : inutile d'enchaîner
+        # 9 cycles si le bras n'est pas alimenté.
+        test_joint = self.reachy.r_arm.r_shoulder_pitch
+        if test_joint.compliant:
+            print("   ❌ PROBLÈME : le moteur est toujours en mode compliant après turn_on !")
+            print("   → Les moteurs ne sont probablement pas alimentés (vérifiez le bouton ON du bras)")
+            print("   Séquence annulée.")
+            return False
 
         results = []
         for case in range(1, 10):
