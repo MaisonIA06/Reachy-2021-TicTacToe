@@ -333,6 +333,17 @@ class TictactoePlayground(object):
             self._failed_analyses = 0
         return None
 
+    def invalidate_head_aim(self):
+        """Oublie que la tête est orientée vers le plateau.
+
+        À appeler dès que quelque chose a pu la déplacer — coupure de
+        couple notamment : sans cela la prochaine ``analyze_board()``
+        réutiliserait la visée en cache et classerait des images d'une tête
+        tombante.
+        """
+        self._looking_at_board = False
+        self._failed_analyses = 0
+
     def analyze_board(self):
         """Analyse l'état actuel du plateau de jeu"""
         # Regarder vers le plateau (z=-0.6 pour le voir en entier),
@@ -1068,10 +1079,19 @@ class TictactoePlayground(object):
             return np.any(np.array(motor_temps) > 50)
         return False
         
-    def wait_for_cooldown(self):
-        """Attend que les moteurs refroidissent"""
-        self.goto_rest_position()
-        
+    def wait_for_cooldown(self, move_to_rest=True):
+        """Attend que les moteurs refroidissent.
+
+        Args:
+            move_to_rest: replier le bras avant d'attendre. À laisser à
+                False quand il est DÉJÀ au repos et hors tension — sinon
+                on le réalimente pour toute la durée du refroidissement,
+                ce qui va exactement contre le but recherché.
+        """
+        if move_to_rest:
+            self.goto_rest_position()
+
+
         while True:
             temperatures = {}
             for joint in self.reachy.joints.values():

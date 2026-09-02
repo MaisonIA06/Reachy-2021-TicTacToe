@@ -26,6 +26,9 @@ python -m reachy_tictactoe.game_launcher
 python -m reachy_tictactoe.game_launcher --host 192.168.1.XXX
 # Avec log fichier
 python -m reachy_tictactoe.game_launcher --log-file /tmp/tictactoe.log
+# Une seule partie puis arrêt (le bras se repose et les moteurs sont
+# relâchés à la fin de CHAQUE partie, quel que soit le mode)
+python -m reachy_tictactoe.game_launcher --once
 # Via entry point installé
 reachy-tictactoe
 ```
@@ -110,7 +113,7 @@ La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, c
 - `moves_validation.py` — validation des `.npz` (fonctions pures, sans robot) : `JOINT_LIMITS` (butées URDF, **source unique**), `limit_violations()`, `is_frozen()`, `unexpected_duplicates()`, `amplitude()`. Utilisé par `scripts/moves/validate_moves.py`, `watch_recording.py` et la suite de tests.
 - `config.py` — **source unique** pour calibration (`BOARD_POSITION`, `BOARD_CASES`), constantes gripper (`GRIPPER_OPEN=-45`, `GRIPPER_CLOSED=-6`, en degrés, plus négatif = plus ouvert), seuils de détection, chemins modèles. `save_calibration()` réécrit le fichier via regex.
 - `moves/__init__.py` — charge dynamiquement tous les `*.npz` du dossier en un dict `moves`. Définit `rest_pos` et `base_pos` (positions cibles joints en degrés).
-- `game_launcher.py` — orchestration, gestion des relances après exception (sleep 5 s puis nouvelle partie).
+- `game_launcher.py` — orchestration. `run_game_loop(playground, report=None)` joue **une** partie et publie son avancement via `report`. `GameSession` la pilote partie par partie : `play_one_game()` joue puis **repose le bras et coupe le couple** (`rest()`), compte les parties et publie un `GameState` figé (`state`, `subscribe(listener)`) — c'est ce que consommera l'interface web. CLI : `--once` pour une seule partie, sinon boucle avec relance après exception (sleep 5 s).
 
 ### Mouvements enregistrés (`reachy_tictactoe/moves/*.npz`)
 Format : `np.load` → dict `{joint_name: array_positions}` à 100 Hz. Noms de joints au format SDK 2021 (`r_arm.r_shoulder_pitch`, etc.).
@@ -143,6 +146,7 @@ MP3 dans `reachy_tictactoe/sounds/`, joués via `subprocess.run(['mpg123', '-a',
 - **Détection « cube saisi » : par POSITION, jamais par `present_load`** — mesures du 2026-09-02 : la charge vaut **2 aussi bien pince vide que cube serré**, elle ne discrimine rien (l'ancien seuil `< 80` criait au loup à chaque coup et n'aurait jamais vu une vraie prise à vide). La position de blocage, elle, sépare franchement : **−8,0° à vide**, **−10,6° à −19,8° avec un cube** ; seuil `config.GRIPPER_HOLDING_THRESHOLD = −9`, prédicat `motors.is_holding_pawn()`.
 - **Lire une position de pince APRÈS stabilisation** (`motors.wait_until_settled`) — piège coûteux : la pince met bien plus longtemps que prévu à finir sa course. L'ancien `sleep(0.3)` la lisait **en plein mouvement** (−12,0° au lieu de −8,0° à vide), ce qui faisait passer une pince vide pour une prise réussie. Une seule lecture stable ne suffit pas non plus (−9,1° mesuré, à 0,1° du seuil) : le servo ralentit en fin de course, d'où `stable_readings=2` avec des lectures espacées de 0,1 s. Avec un cube la pince est bloquée donc immobile tout de suite — c'est le cas à vide qui exige l'attente.
 - **Prise à vide = `PawnNotGrabbed`** : `play_pawn` réessaie `GRAB_ATTEMPTS` (3) fois avec une alerte sonore, ramène le bras en position de base, puis lève `PawnNotGrabbed`. Le launcher **garde le tour de Reachy** et réessaie. ⚠️ Ne jamais marquer la case quand la prise échoue : le plateau interne divergerait de la vision et l'humain serait accusé de tricher (partie annulée).
+- **Fin de partie : bras au repos, couple coupé** — `GameSession.play_one_game()` termine toujours par `rest()`, y compris si la partie lève une exception (les moteurs ne doivent pas chauffer bras tendu). Trois pièges qui en découlent : ① couper le couple rend la tête molle, donc `rest()` appelle `invalidate_head_aim()` — sans quoi la partie suivante analyse avec la visée en cache d'une tête tombante (`reset()` n'invalide qu'**après** l'attente d'un plateau vide, trop tard) ; ② `wait_for_cooldown(move_to_rest=False)` quand le bras est déjà hors tension, sinon `goto_rest_position()` le réalimente pour tout le refroidissement ; ③ l'animation de veille pilote les antennes, donc `safe_turn_on('head')` avant `enter_sleep_mode()` sinon elle est silencieusement inerte.
 - **Prise toujours en `grab_1`** : `play()` passe systématiquement `grab_index=1` — il n'y a pas la place d'aligner cinq cubes à côté du plateau, l'humain en redépose un au même endroit à chaque tour. `grab_2..5` restent supportés par `play_pawn` mais ne sont plus exercés par une partie (donc plus validés).
 - **Modèles TFLite** : doivent être compilés **CPU**, pas EdgeTPU. Une erreur claire est levée sinon (`vision.py`).
 - **NumPy < 2.0** requis pour la compatibilité TensorFlow training (voir `requirements-training.txt`).
