@@ -108,6 +108,32 @@ class TestPage:
         assert '#b5605a' in page or '--mia-terracotta' in page
 
 
+class TestBattementSSE:
+    """Le flux doit prouver qu'il est vivant, pas seulement qu'il a des
+    nouvelles : sans battement, un serveur mort et un serveur calme se
+    ressemblent, et l'interface afficherait un état périmé en silence.
+    """
+
+    def test_un_changement_est_pousse_immediatement(self):
+        from reachy_tictactoe.webapp.server import should_emit
+
+        assert should_emit({'a': 1}, {'a': 0}, elapsed=0.0)
+
+    def test_un_etat_identique_est_repousse_apres_le_battement(self):
+        from reachy_tictactoe.webapp.server import should_emit
+
+        etat = {'a': 1}
+        assert not should_emit(etat, dict(etat), elapsed=1.0, heartbeat=8.0)
+        assert should_emit(etat, dict(etat), elapsed=8.0, heartbeat=8.0)
+
+    def test_le_battement_est_plus_court_que_le_delai_du_navigateur(self):
+        """L'interface déclare la liaison perdue au bout de 20 s : le
+        battement doit passer plusieurs fois avant."""
+        from reachy_tictactoe.webapp import server
+
+        assert server.HEARTBEAT_SECONDS <= 10.0
+
+
 class TestCamera:
 
     def test_l_image_de_la_camera_est_servie_en_jpeg(self, client):

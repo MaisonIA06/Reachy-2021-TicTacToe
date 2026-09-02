@@ -23,7 +23,10 @@
 
             --text-primary: #f0f4f8;
             --text-secondary: #b8c8d8;
-            --text-muted: #7a95b0;
+            /* Charte MIA : #7a95b0. Relevé ici car sur nos cartes en verre
+               il tombait sous le seuil de contraste AA (4,5:1) pour du
+               petit texte — sous-titre et intitulés de cartes. */
+            --text-muted: #9db3c9;
 
             --panel: rgba(255, 255, 255, 0.12);
             --panel-strong: rgba(255, 255, 255, 0.16);
@@ -37,6 +40,26 @@
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* Sur des boutons à dégradé et ombres, le contour par défaut du
+           navigateur est quasi invisible : une personne au clavier ne
+           saurait pas où elle se trouve. */
+        :focus-visible {
+            outline: 3px solid var(--mia-terracotta-light);
+            outline-offset: 3px;
+            border-radius: 6px;
+        }
+
+        /* Respecter les réglages système : la pastille qui pulse et le
+           balayage brillant ne doivent pas s'imposer. */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+            .btn::after { display: none; }
+        }
 
         body {
             font-family: "Plus Jakarta Sans", "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -107,6 +130,45 @@
         }
 
         .header-text { flex: 1; min-width: 0; }
+        /* -------- Indicateur de liaison -------- */
+        .link-state {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+
+        .link-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #6dd68c;
+            flex-shrink: 0;
+        }
+
+        .link-state.offline {
+            background: rgba(240, 112, 112, 0.22);
+            border-color: #f07070;
+            color: #ffd9d9;
+        }
+
+        .link-state.offline .link-dot {
+            background: #f07070;
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+
+        /* Serveur injoignable : l'état affiché n'est plus fiable, on le dit
+           visuellement au lieu de laisser croire qu'il est à jour. */
+        body.offline .main-grid { opacity: 0.5; filter: saturate(0.6); }
+
         .mia-logo {
             height: 52px;
             width: auto;
@@ -518,17 +580,24 @@
                 <h1>TicTacToe Reachy</h1>
                 <p>Pilotage et suivi de partie en direct</p>
             </div>
+
+            <!-- Sans cet indicateur, un serveur tombé laisserait l'écran
+                 figé sur un état périmé, sans que rien ne le signale. -->
+            <div class="link-state offline" id="link-state" role="status">
+                <span class="link-dot"></span>
+                <span id="link-label">Connexion…</span>
+            </div>
             <img src="/static/mia-logo.png" alt="MIA — La Maison de l'IA" class="mia-logo">
         </header>
 
-        <div class="main-grid">
+        <main class="main-grid">
 
             <!-- Colonne gauche : partie + commandes -->
             <div class="column">
             <section class="card">
                 <div class="card-title">Partie en cours</div>
 
-                <div class="status-line">
+                <div class="status-line" aria-live="polite">
                     <span class="status-dot" id="dot"></span>
                     <div>
                         <div class="status-text" id="status-text">Prêt</div>
@@ -541,7 +610,12 @@
                     <span class="badge" id="badge-games">0 partie</span>
                 </div>
 
-                <div class="board" id="board"></div>
+                <!-- role="list" et non "grid" : une grille ARIA exige des
+                     role="row" intermédiaires, que la mise en page CSS ne
+                     permet pas ici. Une liste de 9 cases décrites est
+                     valide et s'annonce correctement. -->
+                <div class="board" id="board" role="list"
+                     aria-label="Plateau de morpion"></div>
 
                 <div class="legend">
                     <span><i style="background: var(--mia-terracotta)"></i> Reachy — cubes</span>
@@ -551,7 +625,7 @@
 
             <section class="card">
                 <div class="card-title">Commandes</div>
-                <div class="toast" id="toast"></div>
+                <div class="toast" id="toast" role="status" aria-live="polite"></div>
                 <div class="actions">
                     <button class="btn primary" id="btn-game">
                         <span class="icon">▶</span>
@@ -607,7 +681,7 @@
                     <div class="placeholder" id="camera-placeholder">Caméra indisponible</div>
                 </div>
             </section>
-        </div>
+        </main>
 
         <div class="footer">MIA — La Maison de l'IA · Reachy 2021</div>
     </div>
@@ -615,12 +689,16 @@
     <script>
         const PIECES = { 0: '', 1: '✕', 2: '◯' };
         const CLASSES = { 0: '', 1: 'cube', 2: 'cylinder' };
+        // Décrit pour les lecteurs d'écran : ✕ et ◯ seuls ne veulent rien
+        // dire, et la couleur ne se lit pas.
+        const PIECE_NAMES = { 0: 'vide', 1: 'cube de Reachy', 2: 'votre cylindre' };
 
         const board = document.getElementById('board');
         const cells = [];
         for (let i = 0; i < 9; i++) {
             const cell = document.createElement('div');
             cell.className = 'cell';
+            cell.setAttribute('role', 'listitem');
             board.appendChild(cell);
             cells.push(cell);
         }
@@ -658,13 +736,35 @@
             showToast._t = setTimeout(() => toast.className = 'toast', 6000);
         }
 
+        // Dernier état connu : l'activation des boutons dépend à la fois de
+        // lui ET de la liaison. Les deux sources se croisant, une fonction
+        // unique décide — sinon un bouton désactivé par une coupure peut ne
+        // jamais être réactivé (« Arrêter » restait grisé pour toujours).
+        let lastData = null;
+
+        function applyControls() {
+            const offline = document.body.classList.contains('offline');
+            const running = lastData ? lastData.robot.running : null;
+            const busy = lastData ? lastData.robot.busy : true;
+
+            [btnGame, btnMoves, btnCalib].forEach(
+                b => b.disabled = offline || busy);
+            // « Arrêter » vaut pour toute action en cours, pas seulement
+            // une partie : le parcours des cases s'interrompt aussi.
+            btnStop.hidden = running === null;
+            btnStop.disabled = offline;
+        }
+
         function render(data) {
+            lastData = data;
             const game = data.game;
             const robot = data.robot;
 
             game.board.forEach((piece, i) => {
                 cells[i].textContent = PIECES[piece] || '';
                 cells[i].className = 'cell ' + (CLASSES[piece] || '');
+                cells[i].setAttribute('aria-label',
+                    'Case ' + (i + 1) + ' : ' + PIECE_NAMES[piece]);
             });
 
             dot.className = 'status-dot ' + game.status;
@@ -690,12 +790,7 @@
             badgeGames.textContent = n + (n > 1 ? ' parties' : ' partie');
 
             // Un seul bras : tout est grisé pendant qu'une action tourne.
-            [btnGame, btnMoves, btnCalib].forEach(b => b.disabled = robot.busy);
-
-            // « Arrêter » n'a de sens que pendant une partie — sans lui, un
-            // clic malencontreux immobiliserait le robot jusqu'au
-            // redémarrage du serveur.
-            btnStop.hidden = robot.running !== 'game';
+            applyControls();
         }
 
         async function post(url, bouton) {
@@ -720,13 +815,55 @@
         btnCalib.onclick = () => showToast(
             'Calibration : à lancer depuis le robot pour le moment (clics souris requis).', 'info');
 
-        // Flux d'état poussé par le serveur, avec repli sur du polling.
+        // -------- Liaison avec le serveur --------
+        // Le serveur renvoie l'état au moins toutes les 8 s (battement) :
+        // au-delà de ce délai sans message, la liaison est considérée
+        // perdue et l'affichage cesse de se faire passer pour à jour.
+        const LINK_TIMEOUT_MS = 20000;
+        const linkState = document.getElementById('link-state');
+        const linkLabel = document.getElementById('link-label');
+        let linkWatchdog = null;
+
+        let currentSource = null;
+
+        function setLink(online) {
+            linkState.classList.toggle('offline', !online);
+            document.body.classList.toggle('offline', !online);
+            linkLabel.textContent = online ? 'En direct' : 'Connexion perdue';
+            applyControls();
+        }
+
+        function dropAndReconnect() {
+            setLink(false);
+            if (currentSource) {
+                currentSource.close();
+                currentSource = null;
+            }
+            setTimeout(connect, 3000);
+        }
+
+        function pingWatchdog() {
+            clearTimeout(linkWatchdog);
+            // Un flux resté ouvert mais muet ne déclenche jamais onerror :
+            // il faut le refermer soi-même, sinon l'interface resterait
+            // bloquée sur « Connexion perdue » sans jamais retenter.
+            linkWatchdog = setTimeout(dropAndReconnect, LINK_TIMEOUT_MS);
+        }
+
         function connect() {
             const source = new EventSource('/api/events');
-            source.onmessage = e => render(JSON.parse(e.data));
+            currentSource = source;
+
+            source.onmessage = e => {
+                setLink(true);
+                pingWatchdog();
+                render(JSON.parse(e.data));
+            };
+
             source.onerror = () => {
-                source.close();
-                setTimeout(connect, 3000);
+                if (currentSource !== source) return;  // déjà remplacé
+                clearTimeout(linkWatchdog);
+                dropAndReconnect();
             };
         }
         connect();
@@ -739,23 +876,51 @@
         const optOverlay = document.getElementById('opt-overlay');
         const optFull = document.getElementById('opt-full');
 
-        setInterval(() => {
+        // Boucle auto-programmée plutôt qu'un setInterval : elle n'empile
+        // pas les requêtes quand le serveur traîne, et espace les essais
+        // quand il ne répond plus (au lieu de le marteler chaque seconde).
+        const CAMERA_PERIOD_MS = 1000;
+        const CAMERA_MAX_DELAY_MS = 10000;
+        let cameraDelay = CAMERA_PERIOD_MS;
+
+        const CAMERA_TIMEOUT_MS = 8000;
+
+        function refreshCamera() {
             const params = new URLSearchParams({ t: Date.now() });
             if (!optFull.checked) params.set('crop', 'true');
             if (optOverlay.checked) params.set('overlay', 'true');
 
             const img = new Image();
-            img.onload = () => {
-                camera.src = img.src;
-                camera.style.display = 'block';
-                placeholder.style.display = 'none';
-            };
-            img.onerror = () => {
-                camera.style.display = 'none';
-                placeholder.style.display = 'flex';
-            };
+            let fini = false;
+
+            // Une requête qui ne se termine ni n'échoue arrêterait la boucle
+            // pour de bon : ce garde-fou la relance quoi qu'il arrive.
+            const secours = setTimeout(() => termine(false), CAMERA_TIMEOUT_MS);
+
+            function termine(succes) {
+                if (fini) return;
+                fini = true;
+                clearTimeout(secours);
+                img.onload = img.onerror = null;
+
+                if (succes) {
+                    camera.src = img.src;
+                    camera.style.display = 'block';
+                    placeholder.style.display = 'none';
+                    cameraDelay = CAMERA_PERIOD_MS;
+                } else {
+                    camera.style.display = 'none';
+                    placeholder.style.display = 'flex';
+                    cameraDelay = Math.min(cameraDelay * 2, CAMERA_MAX_DELAY_MS);
+                }
+                setTimeout(refreshCamera, cameraDelay);
+            }
+
+            img.onload = () => termine(true);
+            img.onerror = () => termine(false);
             img.src = '/api/camera.jpg?' + params;
-        }, 1000);
+        }
+        refreshCamera();
     </script>
 </body>
 

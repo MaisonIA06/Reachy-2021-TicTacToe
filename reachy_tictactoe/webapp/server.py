@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from dataclasses import asdict
 
 import cv2 as cv
@@ -20,6 +21,10 @@ from .controller import RobotBusy
 logger = logging.getLogger('reachy.tictactoe.webapp')
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
+
+#: Intervalle maximal entre deux messages SSE, même sans changement.
+#: Permet au navigateur de distinguer « rien ne bouge » de « serveur mort ».
+HEARTBEAT_SECONDS = 8.0
 
 
 #: Couleurs BGR de la superposition, cohérentes avec la charte MIA.
@@ -78,6 +83,17 @@ def _annotate(frame, crop=False, overlay=False, margin=0.06):
             image = image[y1:y2, x1:x2]
 
     return image
+
+
+def should_emit(current, previous, elapsed, heartbeat=HEARTBEAT_SECONDS):
+    """Faut-il pousser l'état sur le flux SSE ?
+
+    On émet à chaque changement, et **au moins** toutes les ``heartbeat``
+    secondes même si rien ne bouge : sans ce battement, une longue période
+    calme serait indiscernable d'un serveur mort côté navigateur, qui
+    afficherait un état périmé en silence.
+    """
+    return current != previous or elapsed >= heartbeat
 
 
 def _snapshot(session, controller):
@@ -184,13 +200,22 @@ def create_app(session, controller):
         On interroge l'instantané plutôt que de s'abonner à la session :
         cela couvre aussi les changements d'état du robot (action en
         cours), qui ne passent pas par ``GameState``.
+
+        Un état identique est renvoyé au moins toutes les
+        ``HEARTBEAT_SECONDS`` : sans ce battement, une longue période sans
+        changement serait indiscernable d'un serveur mort, et l'interface
+        afficherait un état périmé en silence.
         """
         async def stream():
             precedent = None
+            dernier_envoi = 0.0
             while True:
                 courant = _snapshot(session, controller)
-                if courant != precedent:
+                maintenant = time.monotonic()
+                if should_emit(courant, precedent,
+                               maintenant - dernier_envoi):
                     precedent = courant
+                    dernier_envoi = maintenant
                     yield f'data: {json.dumps(courant)}\n\n'
                 await asyncio.sleep(0.3)
 
