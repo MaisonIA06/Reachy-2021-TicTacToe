@@ -21,4 +21,31 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Lancer la suite de tests
-        run: pytest -v
+        id: tests
+        run: |
+          set -o pipefail
+          pytest -v --tb=short 2>&1 | tee /tmp/pytest.log
+
+      # Les journaux complets d'un run ne sont téléchargeables qu'avec les
+      # droits admin du dépôt. Sans ce résumé, un échec du CI n'est
+      # diagnosticable que depuis l'interface web — on a perdu du temps
+      # dessus. Les annotations, elles, sont lisibles par tous.
+      - name: Résumé de l'échec
+        if: failure() && steps.tests.outcome == 'failure'
+        run: |
+          {
+            echo '### Échecs de la suite'
+            echo '```'
+            grep -E "^(FAILED|ERROR)" /tmp/pytest.log | head -20 || true
+            echo '```'
+            echo '<details><summary>Détail</summary>'
+            echo '```'
+            tail -60 /tmp/pytest.log
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          resume=$(grep -E "^(FAILED|ERROR)" /tmp/pytest.log | head -8 \
+                   | tr '\n' ' | ' || true)
+          [ -z "$resume" ] && resume=$(tail -5 /tmp/pytest.log | tr '\n' ' ')
+          echo "::error title=Suite de tests::${resume}"
