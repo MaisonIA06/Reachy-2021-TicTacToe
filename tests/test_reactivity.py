@@ -122,16 +122,43 @@ class TestAnalyzeBoardLookAt:
 # Le son « thinking » ne bloque pas le départ du bras
 # ---------------------------------------------------------------------------
 
-def test_thinking_n_attend_pas_la_fin_du_son(monkeypatch, stopwatch):
-    def slow_sound(*args, **kwargs):
-        time.sleep(3.0)
+def test_thinking_n_attend_pas_la_fin_du_son(monkeypatch):
+    """Le son doit être joué en tâche de fond, pas attendu.
 
-    monkeypatch.setattr(behavior, 'play_sound_safe', slow_sound)
+    ⚠️ Ce test mesurait auparavant le temps écoulé (< 2,5 s pour une
+    animation de ~1,5 s). La marge était trop étroite : il échouait par
+    intermittence sur les machines chargées, jusqu'à faire tomber le CI
+    sans qu'aucun code de production n'ait changé. On vérifie désormais
+    le CONTRAT — le son part sur l'executor, il n'est pas appelé
+    directement — ce qui ne dépend plus de la vitesse de la machine.
+    """
+    import threading
 
-    # L'animation des antennes dure ~1,5 s ; le son (3 s) doit être
-    # lancé en tâche de fond, pas attendu.
-    elapsed = stopwatch(behavior.thinking, MagicMock())
-    assert elapsed < 2.5
+    fil_appelant = threading.current_thread()
+    fils_du_son = []
+    monkeypatch.setattr(
+        behavior, 'play_sound_safe',
+        lambda *a, **kw: fils_du_son.append(threading.current_thread()))
+
+    soumissions = []
+    vrai_submit = behavior._sound_executor.submit
+
+    def submit_trace(fn, *a, **kw):
+        soumissions.append(fn)
+        return vrai_submit(fn, *a, **kw)
+
+    monkeypatch.setattr(behavior._sound_executor, 'submit', submit_trace)
+
+    behavior.thinking(MagicMock())
+    # Laisser l'executor consommer sa file avant de conclure.
+    behavior._sound_executor.submit(lambda: None).result(timeout=5)
+
+    assert soumissions, 'le son doit être confié à l\'executor'
+    assert fils_du_son, 'le son doit finir par être joué'
+    assert fil_appelant not in fils_du_son, (
+        'play_sound_safe ne doit pas être appelé dans le fil du geste : '
+        'le bras attendrait la fin du son'
+    )
 
 
 def test_thinking_logge_l_echec_du_son(monkeypatch, caplog):
