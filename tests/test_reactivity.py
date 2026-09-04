@@ -16,11 +16,34 @@ from reachy_tictactoe import behavior
 
 
 @pytest.fixture
-def stopwatch():
+def sleep_budget(monkeypatch):
+    """Exécute une fonction et renvoie le total des ``sleep`` DEMANDÉS.
+
+    ⚠️ On ne chronomètre plus le temps réel : les seuils laissaient trop
+    peu de marge (``play_pawn`` mesurait 1,07 s pour un seuil de 1,5 s) et
+    le CI est tombé sur un runner chargé alors qu'aucun code de production
+    n'avait changé. En interceptant ``time.sleep``, on mesure exactement
+    ce que le test veut surveiller — les attentes que le code s'impose —
+    sans dépendre de la vitesse de la machine. Les tests deviennent en
+    prime instantanés.
+    """
+    import reachy_tictactoe.behavior as behavior_mod
+    import reachy_tictactoe.tictactoe_playground as playground_mod
+    import reachy_tictactoe.motors as motors_mod
+
+    total = {'s': 0.0}
+
+    def faux_sleep(duree):
+        total['s'] += duree
+
+    for module in (playground_mod, behavior_mod, motors_mod):
+        monkeypatch.setattr(module.time, 'sleep', faux_sleep, raising=False)
+
     def run(fn, *args, **kwargs):
-        start = time.perf_counter()
+        total['s'] = 0.0
         fn(*args, **kwargs)
-        return time.perf_counter() - start
+        return total['s']
+
     return run
 
 
@@ -29,37 +52,41 @@ def stopwatch():
 # ---------------------------------------------------------------------------
 
 class TestNoRedundantSleep:
-    def test_goto_position(self, playground, stopwatch):
-        elapsed = stopwatch(
+    """goto() est bloquant : tout sleep(duration) qui le suit double le
+    geste. Les budgets ci-dessous sont en secondes d'attente DEMANDÉE ;
+    ils doivent rester très en dessous des durées de goto (1 à 2 s)."""
+
+    def test_goto_position(self, playground, sleep_budget):
+        attente = sleep_budget(
             playground.goto_position,
             {'r_arm.r_shoulder_pitch': 0.0}, 2.0)
-        assert elapsed < 0.5
+        assert attente < 0.5
 
-    def test_goto_rest_position(self, playground, stopwatch):
-        elapsed = stopwatch(playground.goto_rest_position, 2.0)
-        assert elapsed < 0.5
+    def test_goto_rest_position(self, playground, sleep_budget):
+        attente = sleep_budget(playground.goto_rest_position, 2.0)
+        assert attente < 0.5
 
-    def test_close_gripper(self, playground, stopwatch):
+    def test_close_gripper(self, playground, sleep_budget):
         # Les courtes pauses de stabilisation du servo sont légitimes,
         # mais pas le sleep qui recopiait la durée du goto.
         playground.reachy.r_arm.r_gripper.present_position = -20.0
-        elapsed = stopwatch(playground.close_gripper)
-        assert elapsed < 0.5
+        attente = sleep_budget(playground.close_gripper)
+        assert attente < 0.5
 
-    def test_open_gripper(self, playground, stopwatch):
+    def test_open_gripper(self, playground, sleep_budget):
         playground.reachy.r_arm.r_gripper.present_position = -6.0
-        elapsed = stopwatch(playground.open_gripper)
-        assert elapsed < 0.3
+        attente = sleep_budget(playground.open_gripper)
+        assert attente < 0.3
 
-    def test_look_at(self, playground, stopwatch):
-        elapsed = stopwatch(playground.look_at, 0.5, 0.0, -0.6, 1.0)
-        assert elapsed < 0.5
+    def test_look_at(self, playground, sleep_budget):
+        attente = sleep_budget(playground.look_at, 0.5, 0.0, -0.6, 1.0)
+        assert attente < 0.5
 
-    def test_head_home(self, stopwatch):
-        elapsed = stopwatch(behavior.head_home, MagicMock(), 1.0)
-        assert elapsed < 0.5
+    def test_head_home(self, sleep_budget):
+        attente = sleep_budget(behavior.head_home, MagicMock(), 1.0)
+        assert attente < 0.5
 
-    def test_play_pawn(self, playground, monkeypatch, stopwatch):
+    def test_play_pawn(self, playground, monkeypatch, sleep_budget):
         # Robot factice avec des lectures numériques plausibles.
         gripper = playground.reachy.r_arm.r_gripper
         gripper.present_position = -20.0
@@ -67,13 +94,13 @@ class TestNoRedundantSleep:
         playground.reachy.r_arm.r_shoulder_pitch.present_position = 10.0
         playground.reachy.r_arm.r_elbow_pitch.present_position = -60.0
         # Le playback 100 Hz de la trajectoire de dépose est un vrai
-        # temps de mouvement (2,5 s), pas une attente : on l'exclut.
+        # temps de mouvement, pas une attente : on l'exclut.
         monkeypatch.setattr(playground, 'play_trajectory', MagicMock())
 
-        elapsed = stopwatch(playground.play_pawn, 1, 5)
+        attente = sleep_budget(playground.play_pawn, 1, 5)
 
         # Il ne doit rester que les courtes pauses de stabilisation.
-        assert elapsed < 1.5
+        assert attente < 1.5
 
 
 # ---------------------------------------------------------------------------
