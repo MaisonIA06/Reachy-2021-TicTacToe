@@ -14,6 +14,7 @@ import uvicorn
 from .. import TictactoePlayground
 from ..game_launcher import GameSession
 from .controller import RobotController
+from .health import MotorHealth
 from .server import create_app
 
 logger = logging.getLogger('reachy.tictactoe.webapp')
@@ -45,8 +46,19 @@ def main():
         # moteurs ne doivent pas chauffer à ne rien faire.
         session.rest()
 
+        # Surveillance du contrôleur moteur : détecte son plantage, dont
+        # le symptôme (robot qui répond mais n'obéit plus) est invisible
+        # autrement. La vérification lit /proc, donc n'a de sens que si le
+        # serveur tourne sur le robot lui-même.
+        local = args.host in ('localhost', '127.0.0.1', '::1')
+        if not local:
+            logger.warning(
+                f'Robot distant ({args.host}) : la surveillance du '
+                f'contrôleur moteur est désactivée.')
+
         app = create_app(session=session,
-                         controller=RobotController(session))
+                         controller=RobotController(session),
+                         health=MotorHealth(local=local))
 
         logger.info(f'Interface disponible sur http://{args.bind}:{args.port}/')
         uvicorn.run(app, host=args.bind, port=args.port, log_level='warning')

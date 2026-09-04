@@ -25,6 +25,20 @@ python -m reachy_tictactoe.webapp --host localhost
 ```
 Boutons : « Lancer une partie », « Arrêter » (visible pendant une action), « Test mouvements » (parcourt les 9 cases à vide), « Calibrage » (tracer le plateau puis ajuster les 9 cases sur l'image caméra ; enregistrement **actif immédiatement**, sans redémarrage). Vue caméra recadrée sur la zone calibrée, avec bascules « Repères » (superpose les 9 cases) et « Plein cadre ». ⚠️ Port **8080** par défaut : le 8000 est déjà pris sur le NUC.
 
+### Interface web en service (démarrage automatique)
+```bash
+# SUR LE ROBOT, une seule fois
+bash scripts/systemd/install.sh
+systemctl --user status reachy-tictactoe-web.service
+# Pour tout annuler
+systemctl --user disable --now reachy-tictactoe-web.service
+rm ~/.config/systemd/user/reachy-tictactoe-web.service && systemctl --user daemon-reload
+```
+⚠️ L'unité impose **`Nice=5`** : sans elle, systemd démarrerait à `nice 0`, soit la **même priorité que `ros2_control_node`** (le contrôleur moteur). L'interface tournait historiquement à `nice 5`, en retrait — c'est ce qui garantit que le noyau sert le contrôleur en premier et que les gestes restent fluides. Mesures : l'interface coûte **10 % d'un cœur** (~1,25 % de la machine, 8 cœurs, ~30 % de charge totale), et un navigateur connecté n'ajoute rien de mesurable.
+
+### Panne du contrôleur moteur (⚠️ déjà vécue)
+Symptôme : le robot répond (SDK, caméra, positions lisibles) mais **n'obéit plus**, aucune consigne n'aboutit. Cause : `ros2_control_node` tué au démarrage par un recalage NTP (panique Rust dans `cache_cache`, horodatages « dans le futur »). L'interface le détecte et affiche un bandeau ; le bouton **« Réparer »** (`POST /api/system/recover` → `scripts/systemd/recover_sdk.sh`) redémarre le service de Pollen puis l'interface. Coupure d'une quinzaine de secondes, reconnexion automatique du navigateur. En ligne de commande : `systemctl --user restart reachy_sdk_server.service`.
+
 ### Lancer le jeu
 ```bash
 # Robot local
@@ -118,6 +132,7 @@ La suite (`tests/`) couvre la logique pure : règles du jeu, agent Q-learning, c
 - `rl_agent.py` — charge `Q-value.npz` (table Q précalculée) et renvoie les actions triées par valeur.
 - `motors.py` — helpers moteurs/pince (source unique, importés par le jeu et les scripts `moves/`) : `safe_turn_on(reachy, part)` activation du couple **sans à-coup**, `wait_until_settled(read_position)` attente d'immobilité réelle, `is_holding_pawn(position)` détection du cube saisi. Voir « Pièges ».
 - `webapp/` — interface web (FastAPI + uvicorn). `controller.py` : `RobotController` sérialise les actions (**une seule à la fois** — tous les boutons pilotent le même bras) et les lance en arrière-plan, la requête HTTP ne peut pas attendre la fin d'une partie ; refus par `RobotBusy` → HTTP 409. `server.py` : `create_app(session, controller)` — le serveur ne parle **jamais** au SDK, il ne connaît que la session et le contrôleur (d'où sa testabilité sans robot). `static/index.html` : page unique à la charte MIA (navy `#1a3a5c` + terracotta `#b5605a`, Plus Jakarta Sans, cartes en verre dépoli), état poussé en SSE (`/api/events`), image caméra rafraîchie chaque seconde.
+- `webapp/health.py` — surveillance du contrôleur moteur. Vérifie la **présence du processus** `ros2_control_node` dans `/proc` (donc seulement si le serveur tourne sur le robot, `local=True`). ⚠️ **Ne pas retenter la détection par immobilité des positions** : les ~0,09° pris pour du bruit sont **un seul pas d'encodeur** (mesuré : 2 valeurs distinctes sur 400 lectures, écart 0,0900 ≈ 360/4096 sur Dynamixel MX). Un bras immobile peut rester sur un pas unique et afficher 0,00° — la détection annoncerait une panne inexistante.
 - `webapp/calibration.py` — conversion des repères et application d'une calibration venue du navigateur. ⚠️ **Deux repères** : le navigateur travaille en pixels de l'image entière, `config.BOARD_CASES` est relatif au plateau recadré. ⚠️ **Écrire dans `config.py` ne suffit pas** : `vision.py` lit la calibration une seule fois, à l'import, dans `board_cases`/`board_rect` — `apply_calibration()` recharge donc aussi ces globales, sinon l'utilisateur verrait « enregistré » et la vision garderait les anciennes valeurs jusqu'au redémarrage.
 - `moves_validation.py` — validation des `.npz` (fonctions pures, sans robot) : `JOINT_LIMITS` (butées URDF, **source unique**), `limit_violations()`, `is_frozen()`, `unexpected_duplicates()`, `amplitude()`. Utilisé par `scripts/moves/validate_moves.py`, `watch_recording.py` et la suite de tests.
 - `config.py` — **source unique** pour calibration (`BOARD_POSITION`, `BOARD_CASES`), constantes gripper (`GRIPPER_OPEN=-45`, `GRIPPER_CLOSED=-6`, en degrés, plus négatif = plus ouvert), seuils de détection, chemins modèles. `save_calibration()` réécrit le fichier via regex.

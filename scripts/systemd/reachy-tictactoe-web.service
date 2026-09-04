@@ -1,0 +1,36 @@
+[Unit]
+Description=Interface web du TicTacToe Reachy (MIA)
+# Notre service, pas celui de Pollen : reachy_sdk_server.service reste
+# intact. On demande seulement à démarrer après lui.
+After=reachy_sdk_server.service
+Wants=reachy_sdk_server.service
+
+[Service]
+Type=simple
+# __PROJET__ est remplacé par install.sh par le chemin réel du dépôt : un
+# chemin figé ici ferait échouer le service en boucle (CHDIR) sur toute
+# installation ailleurs que ~/dev/Reachy-2021-TicTacToe.
+WorkingDirectory=__PROJET__
+ExecStart=__PROJET__/venv/bin/python -m reachy_tictactoe.webapp --host localhost
+
+# ⚠️ CRITIQUE : sans cette ligne, systemd démarrerait à nice 0, soit la
+# MÊME priorité que ros2_control_node (le contrôleur moteur). L'interface
+# tournait jusqu'ici à nice 5, donc en retrait — c'est ce qui garantit que
+# le noyau sert le contrôleur en premier et que les gestes restent fluides.
+Nice=5
+
+# Le SDK peut mettre du temps à répondre au démarrage du robot ; on
+# réessaie plutôt que d'abandonner.
+Restart=always
+RestartSec=10
+
+# Redémarrage déclenché depuis l'interface : le processus se termine
+# volontairement (code 0) et systemd le relance. C'est ce qui permet au
+# bouton de récupération de survivre à sa propre action.
+SuccessExitStatus=0
+
+StandardOutput=append:/tmp/webapp.log
+StandardError=append:/tmp/webapp.log
+
+[Install]
+WantedBy=default.target

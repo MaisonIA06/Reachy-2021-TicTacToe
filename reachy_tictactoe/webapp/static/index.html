@@ -549,6 +549,31 @@
         .toast.info { background: rgba(42, 90, 140, 0.30); border-color: var(--mia-navy-light); }
         .toast.error { background: rgba(240, 112, 112, 0.20); border-color: #f07070; }
 
+        /* -------- Bandeau d'alerte matérielle -------- */
+        .alert {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 20px;
+            border-radius: var(--radius);
+            border: 1px solid #f07070;
+            background: rgba(240, 112, 112, 0.18);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: var(--shadow-card);
+        }
+
+        .alert[hidden] { display: none; }
+        .alert-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+        .alert-text strong { font-size: 1rem; font-weight: 800; }
+        .alert-text span { font-size: 0.85rem; color: var(--text-secondary); }
+        .alert-btn { width: auto; flex-shrink: 0; padding: 12px 22px; }
+
+        @media (max-width: 620px) {
+            .alert { flex-direction: column; align-items: stretch; }
+            .alert-btn { width: 100%; }
+        }
+
         /* -------- Panneau de calibration -------- */
         .calib {
             position: fixed;
@@ -663,6 +688,21 @@
             </div>
             <img src="/static/mia-logo.png" alt="MIA — La Maison de l'IA" class="mia-logo">
         </header>
+
+        <!-- Panne du contrôleur moteur : le robot répond mais n'obéit
+             plus. Invisible sans ce signal. -->
+        <div class="alert" id="alert-motors" hidden role="alert">
+            <div class="alert-text">
+                <strong>Contrôleur moteur planté</strong>
+                <span>Les positions sont figées : le robot répond, mais aucune
+                      consigne n'aboutit. Un redémarrage du service le répare
+                      en une trentaine de secondes.</span>
+            </div>
+            <button class="btn danger alert-btn" id="btn-recover">
+                <span class="icon">⟳</span>
+                <span class="label"><span>Réparer</span></span>
+            </button>
+        </div>
 
         <main class="main-grid">
 
@@ -820,6 +860,8 @@
         const btnMoves = document.getElementById('btn-moves');
         const btnCalib = document.getElementById('btn-calib');
         const btnStop = document.getElementById('btn-stop');
+        const btnRecover = document.getElementById('btn-recover');
+        const alertMotors = document.getElementById('alert-motors');
 
         const STATUS = {
             idle: 'Prêt',
@@ -896,11 +938,14 @@
             const n = game.games_played;
             badgeGames.textContent = n + (n > 1 ? ' parties' : ' partie');
 
+            // Panne du contrôleur : les commandes n'aboutiraient pas.
+            alertMotors.hidden = robot.motors !== 'frozen';
+
             // Un seul bras : tout est grisé pendant qu'une action tourne.
             applyControls();
         }
 
-        async function post(url, bouton) {
+        async function post(url) {
             try {
                 const r = await fetch(url, { method: 'POST' });
                 if (r.status === 409) {
@@ -910,15 +955,33 @@
                     showToast('Échec (HTTP ' + r.status + ')', 'error');
                 } else {
                     showToast('Action lancée', 'info');
+                    return true;
                 }
             } catch (e) {
                 showToast('Serveur injoignable', 'error');
             }
+            return false;
         }
 
         btnGame.onclick = () => post('/api/game');
         btnMoves.onclick = () => post('/api/moves-check');
         btnStop.onclick = () => post('/api/stop');
+
+        btnRecover.onclick = async () => {
+            btnRecover.disabled = true;
+            const lance = await post('/api/system/recover');
+            if (!lance) {
+                // Refusé ou injoignable : il faut pouvoir réessayer tout
+                // de suite, pas attendre une minute pour rien.
+                btnRecover.disabled = false;
+                return;
+            }
+            showToast('Réparation en cours (environ 30 s) — la connexion va '
+                      + 'être coupée puis se rétablira toute seule.', 'info');
+            // Le serveur redémarre : l'indicateur passera en « Connexion
+            // perdue », puis la reconnexion automatique fera le reste.
+            setTimeout(() => btnRecover.disabled = false, 90000);
+        };
         // ================= Calibration =================
         // Le SVG a pour viewBox les dimensions RÉELLES de l'image caméra :
         // tout ce qui est manipulé ici est déjà en pixels image, il n'y a

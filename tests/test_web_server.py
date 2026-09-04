@@ -111,6 +111,71 @@ class TestPage:
         assert '#b5605a' in page or '--mia-terracotta' in page
 
 
+class TestSanteMoteurs:
+    """Sans ce signal, le contrôleur planté est indétectable depuis
+    l'interface : le robot répond mais n'obéit plus, en silence."""
+
+    def test_l_etat_des_moteurs_est_expose(self):
+        from reachy_tictactoe.webapp.server import create_app
+
+        session = MagicMock()
+        session.state = GameState()
+        session.playground.reachy.right_camera.last_frame = None
+        controller = MagicMock()
+        controller.running = None
+        controller.last_error = None
+        health = MagicMock()
+        health.status = 'frozen'
+
+        app = create_app(session=session, controller=controller, health=health)
+        http = fastapi_testclient.TestClient(app)
+
+        assert http.get('/api/state').json()['robot']['motors'] == 'frozen'
+
+    def test_sans_moniteur_l_etat_reste_inconnu(self, client):
+        http, _, _ = client
+
+        assert http.get('/api/state').json()['robot']['motors'] == 'unknown'
+
+
+class TestRecuperation:
+
+    def test_la_reparation_est_lancee_en_session_detachee(self, client,
+                                                          monkeypatch):
+        """Le script redémarre CE serveur : rester notre processus enfant
+        le ferait mourir avant d'avoir fini."""
+        http, _, _ = client
+        lances = []
+        monkeypatch.setattr('subprocess.Popen',
+                            lambda cmd, **kw: lances.append((cmd, kw)))
+
+        reponse = http.post('/api/system/recover')
+
+        assert reponse.status_code == 202
+        cmd, kw = lances[0]
+        assert 'recover_sdk.sh' in ' '.join(cmd)
+        assert kw.get('start_new_session') is True
+
+    def test_pas_de_reparation_pendant_une_action(self, client, monkeypatch):
+        """Redémarrer le contrôleur en pleine partie couperait le bras en
+        pleine trajectoire, pion serré."""
+        http, _, controller = client
+        controller.reserve.side_effect = RobotBusy('game')
+        monkeypatch.setattr(
+            'subprocess.Popen',
+            lambda *a, **kw: pytest.fail('rien ne doit être lancé'))
+
+        assert http.post('/api/system/recover').status_code == 409
+
+    def test_la_reservation_du_robot_est_atomique(self, client, monkeypatch):
+        http, _, controller = client
+        monkeypatch.setattr('subprocess.Popen', lambda *a, **kw: None)
+
+        http.post('/api/system/recover')
+
+        controller.reserve.assert_called_once()
+
+
 class TestBattementSSE:
     """Le flux doit prouver qu'il est vivant, pas seulement qu'il a des
     nouvelles : sans battement, un serveur mort et un serveur calme se

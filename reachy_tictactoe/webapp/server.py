@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import time
 from dataclasses import asdict
 
@@ -97,7 +98,7 @@ def should_emit(current, previous, elapsed, heartbeat=HEARTBEAT_SECONDS):
     return current != previous or elapsed >= heartbeat
 
 
-def _snapshot(session, controller):
+def _snapshot(session, controller, health=None):
     """État complet consommé par l'interface."""
     game = asdict(session.state)
     game['board'] = list(game['board'])
@@ -108,16 +109,21 @@ def _snapshot(session, controller):
             'running': running,
             'busy': running is not None,
             'last_error': controller.last_error,
+            # 'frozen' = contrôleur moteur planté : le robot répond mais
+            # aucune consigne n'aboutit. Sans ce signal, la panne est
+            # indétectable depuis l'interface.
+            'motors': health.status if health is not None else 'unknown',
         },
     }
 
 
-def create_app(session, controller):
+def create_app(session, controller, health=None):
     """Construit l'application FastAPI.
 
     Args:
         session: ``GameSession`` — source de l'état du jeu.
         controller: ``RobotController`` — lance les actions du robot.
+        health: ``MotorHealth`` optionnel — surveillance du bus moteur.
     """
     app = FastAPI(title='Reachy TicTacToe — MIA')
     app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
@@ -129,7 +135,7 @@ def create_app(session, controller):
 
     @app.get('/api/state')
     def state():
-        return _snapshot(session, controller)
+        return _snapshot(session, controller, health)
 
     @app.post('/api/game', status_code=202)
     def start_game():
@@ -155,6 +161,37 @@ def create_app(session, controller):
             raise HTTPException(status_code=409,
                                 detail='Aucune action en cours à arrêter')
         return {'stopping': action}
+
+    @app.post('/api/system/recover', status_code=202)
+    def recover():
+        """Redémarre le contrôleur moteur de Pollen, puis cette interface.
+
+        Répare le plantage de ``ros2_control_node`` (voir CLAUDE.md).
+        Le script est lancé DÉTACHÉ : il redémarre ce serveur, donc il ne
+        survivrait pas s'il restait notre processus enfant. C'est systemd
+        qui nous relance, et le navigateur se reconnecte tout seul.
+        """
+        script = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), '..', '..',
+            'scripts', 'systemd', 'recover_sdk.sh'))
+        if not os.path.exists(script):
+            raise HTTPException(status_code=500,
+                                detail='Script de récupération introuvable')
+
+        # Réservation atomique : redémarrer le contrôleur pendant une
+        # partie couperait le bras en pleine trajectoire, pion serré.
+        # Tester `running` puis agir laisserait cette fenêtre ouverte.
+        try:
+            with controller.reserve('recovery'):
+                logger.warning('Récupération du contrôleur moteur demandée')
+                subprocess.Popen(['bash', script],
+                                 stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+        except RobotBusy as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        return {'recovering': True}
 
     @app.get('/api/calibration')
     def calibration():
@@ -247,7 +284,7 @@ def create_app(session, controller):
             precedent = None
             dernier_envoi = 0.0
             while True:
-                courant = _snapshot(session, controller)
+                courant = _snapshot(session, controller, health)
                 maintenant = time.monotonic()
                 if should_emit(courant, precedent,
                                maintenant - dernier_envoi):
