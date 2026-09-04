@@ -75,7 +75,13 @@ class MotorHealth:
         self._local = local
         self._cache_seconds = cache_seconds
         self._verdict = 'unknown'
-        self._mesure_a = 0.0
+        # ⚠️ None, surtout pas 0.0 : `time.monotonic()` compte depuis le
+        # démarrage de la machine. Avec 0.0, sur un système démarré depuis
+        # moins de `cache_seconds`, l'écart paraîtrait inférieur au cache
+        # et la toute première mesure n'aurait jamais lieu — le verdict
+        # resterait 'unknown'. Invisible sur une machine allumée depuis
+        # des heures ; c'est le CI, sur un runner neuf, qui l'a révélé.
+        self._mesure_a = None
 
     @property
     def status(self):
@@ -84,7 +90,8 @@ class MotorHealth:
             return 'unknown'
 
         maintenant = time.monotonic()
-        if maintenant - self._mesure_a < self._cache_seconds:
+        if (self._mesure_a is not None
+                and maintenant - self._mesure_a < self._cache_seconds):
             return self._verdict
 
         try:

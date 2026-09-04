@@ -88,6 +88,23 @@ class TestMoniteur:
 
         assert moniteur.status == 'unknown'
 
+    def test_la_premiere_mesure_a_lieu_meme_au_demarrage(self, faux_proc,
+                                                         monkeypatch):
+        """Régression : ``time.monotonic()`` compte depuis le démarrage de
+        la machine. Avec un horodatage initial à 0, sur un système démarré
+        depuis moins que la durée du cache, l'écart paraissait inférieur au
+        cache et la première mesure n'avait jamais lieu — le verdict
+        restait 'unknown'. Invisible sur une machine allumée depuis des
+        heures ; c'est le CI, sur un runner neuf, qui l'a révélé.
+        """
+        from reachy_tictactoe.webapp import health
+
+        # Machine démarrée il y a 12 secondes.
+        monkeypatch.setattr(health.time, 'monotonic', lambda: 12.0)
+        racine = faux_proc('.../ros2_control_node')
+
+        assert MotorHealth(proc_root=racine, cache_seconds=60).status == 'ok'
+
     def test_le_verdict_est_mis_en_cache(self, faux_proc):
         """Parcourir /proc à chaque requête HTTP serait du gaspillage :
         le flux d'état interroge plusieurs fois par seconde."""
