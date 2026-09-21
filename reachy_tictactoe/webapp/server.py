@@ -17,10 +17,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from .. import config
 from ..game_launcher import GameState
 from .calibration import apply_calibration
 from .controller import RobotBusy
 from .link import StaticLink
+from . import services as services_module
 
 logger = logging.getLogger('reachy.tictactoe.webapp')
 
@@ -339,6 +341,75 @@ def create_app(session=None, controller=None, health=None, link=None):
             raise HTTPException(status_code=503, detail='Encodage JPEG échoué')
         return Response(content=buffer.tobytes(), media_type='image/jpeg',
                         headers={'Cache-Control': 'no-store'})
+
+    @app.get('/api/temperatures')
+    def temperatures():
+        """Relevé PONCTUEL de la température des moteurs.
+
+        Volontairement à la demande : aucun service de surveillance ne
+        tourne en permanence. L'interface peut répéter l'appel si
+        l'utilisateur active la surveillance continue.
+        """
+        session_courante = link.session
+        if session_courante is None:
+            raise HTTPException(
+                status_code=503,
+                detail='Robot injoignable : températures indisponibles')
+
+        releve = session_courante.playground.read_temperatures()
+        valeurs = [t for t in releve.values() if t is not None]
+        maximum = max(valeurs) if valeurs else None
+
+        # ⚠️ Mêmes seuils que le cycle thermique du jeu : un écran plus
+        # optimiste annoncerait « tout va bien » pendant que la partie
+        # s'interrompt pour refroidir.
+        if maximum is None:
+            verdict = 'unknown'
+        elif maximum > config.TEMPERATURE_COOLDOWN:
+            verdict = 'cooldown'
+        elif maximum > config.TEMPERATURE_WARN:
+            verdict = 'warm'
+        else:
+            verdict = 'ok'
+
+        return {
+            'joints': releve,
+            'max': maximum,
+            'verdict': verdict,
+            'thresholds': {'warn': config.TEMPERATURE_WARN,
+                           'cooldown': config.TEMPERATURE_COOLDOWN},
+        }
+
+    @app.get('/api/services')
+    def list_services():
+        """Services de Pollen rallumables ponctuellement."""
+        return {'services': services_module.listing()}
+
+    @app.post('/api/services/{nom}')
+    def set_service(nom: str, payload: dict):
+        """Démarre ou arrête un service — ponctuellement.
+
+        ⚠️ Le nom vient du navigateur : il est validé contre la liste
+        blanche de ``services.py``, jamais transmis tel quel. Et seules
+        les actions ``start``/``stop`` existent — pas d'``enable``, qui
+        ramènerait le service à chaque démarrage du robot.
+        """
+        action = payload.get('action')
+        if action not in ('start', 'stop'):
+            raise HTTPException(
+                status_code=422,
+                detail="Action attendue : 'start' ou 'stop' (ponctuel)")
+
+        try:
+            if action == 'start':
+                services_module.start(nom)
+            else:
+                services_module.stop(nom)
+        except services_module.ServiceInconnu:
+            raise HTTPException(status_code=404,
+                                detail=f'Service inconnu : {nom}')
+
+        return {'name': nom, 'status': services_module.status(nom)}
 
     @app.get('/api/events')
     async def events():

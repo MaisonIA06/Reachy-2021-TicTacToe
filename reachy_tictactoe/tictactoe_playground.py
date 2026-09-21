@@ -23,7 +23,8 @@ from .motors import is_holding_pawn, wait_until_settled
 from .rl_agent import value_actions
 from . import behavior
 from .config import (GRIPPER_OPEN, GRIPPER_CLOSED,
-                     GRIPPER_HOLDING_THRESHOLD, CAMERA_CONFIG)
+                     GRIPPER_HOLDING_THRESHOLD, CAMERA_CONFIG,
+                     TEMPERATURE_COOLDOWN, TEMPERATURE_RESUME)
 
 
 logger = logging.getLogger('reachy.tictactoe')
@@ -1197,26 +1198,34 @@ class TictactoePlayground(object):
         logger.warning('Continuing without camera (TEST MODE)')
         # os.system('sudo reboot')  # Désactivé en mode test
         
+    def read_temperatures(self):
+        """Température de chaque moteur, en °C.
+
+        Lecture ponctuelle et bon marché : c'est ce que consomme aussi le
+        panneau « Options » de l'interface, sans qu'aucun service de
+        surveillance ne tourne en permanence.
+
+        Returns:
+            dict: nom du joint → °C (ou None si le moteur ne répond pas).
+        """
+        return {joint.name: joint.temperature
+                for joint in self.reachy.joints.values()}
+
     def need_cooldown(self):
         """Vérifie si un refroidissement est nécessaire"""
-        temperatures = {}
-        
-        # Récupérer les températures de tous les moteurs
-        for joint in self.reachy.joints.values():
-            temp = joint.temperature
-            temperatures[joint.name] = temp
-            
+        temperatures = self.read_temperatures()
+
         logger.info(
             'Checking Reachy motors temperature',
             extra={
                 'temperatures': temperatures
             }
         )
-        
+
         # Vérifier les seuils
         motor_temps = [t for t in temperatures.values() if t is not None]
         if motor_temps:
-            return np.any(np.array(motor_temps) > 50)
+            return bool(np.any(np.array(motor_temps) > TEMPERATURE_COOLDOWN))
         return False
         
     def wait_for_cooldown(self, move_to_rest=True):
@@ -1233,11 +1242,8 @@ class TictactoePlayground(object):
 
 
         while True:
-            temperatures = {}
-            for joint in self.reachy.joints.values():
-                temp = joint.temperature
-                temperatures[joint.name] = temp
-                
+            temperatures = self.read_temperatures()
+
             logger.warning(
                 'Motors cooling down...',
                 extra={
@@ -1246,7 +1252,8 @@ class TictactoePlayground(object):
             )
             
             motor_temps = [t for t in temperatures.values() if t is not None]
-            if motor_temps and np.all(np.array(motor_temps) < 45):
+            if motor_temps and np.all(
+                    np.array(motor_temps) < TEMPERATURE_RESUME):
                 break
                 
             time.sleep(30)

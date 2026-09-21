@@ -213,6 +213,71 @@
         /* La carte caméra prend toute la hauteur restante de sa colonne. */
         .card.stretch { flex: 1; }
 
+        .options summary {
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .options summary::after {
+            content: '▾';
+            font-size: 0.8em;
+            opacity: 0.6;
+            transition: transform 0.2s ease;
+        }
+
+        .options[open] summary::after { transform: rotate(180deg); }
+
+        .option-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .option-row:last-child { border-bottom: none; }
+        .option-text { min-width: 180px; flex: 1; }
+        .option-text strong { display: block; font-size: 0.95rem; }
+
+        .option-sub {
+            display: block;
+            font-size: 0.78rem;
+            opacity: 0.7;
+            margin-top: 2px;
+        }
+
+        .option-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .temp-badge {
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.10);
+        }
+
+        .temp-badge.warm { background: rgba(240, 180, 90, 0.25); }
+        .temp-badge.cooldown { background: rgba(240, 112, 112, 0.30); }
+
+        .svc-state {
+            font-size: 0.78rem;
+            padding: 3px 9px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.10);
+        }
+
+        .svc-state.active { background: rgba(109, 214, 140, 0.25); }
+
         .card-title {
             font-size: 0.78rem;
             font-weight: 700;
@@ -792,6 +857,36 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Options : replié par défaut. Ce panneau ne s'adresse pas
+                 au public d'une démonstration, mais à qui prépare la
+                 séance. Les services listés ne pilotent ni les bras ni la
+                 tête : ils restent donc utilisables pendant une partie. -->
+            <section class="card">
+                <details class="options" id="options">
+                    <summary class="card-title">Options</summary>
+
+                    <div class="option-row">
+                        <div class="option-text">
+                            <strong>Température des moteurs</strong>
+                            <span class="option-sub" id="temp-sub">Relevé à la demande — aucun service ne tourne en continu</span>
+                        </div>
+                        <div class="option-actions">
+                            <span class="temp-badge" id="temp-value" title="Aucun relevé">—</span>
+                            <button class="btn tool" id="btn-temp">
+                                <span class="icon">🌡</span>
+                                <span>Relever</span>
+                            </button>
+                            <label class="switch">
+                                <input type="checkbox" id="temp-auto">
+                                <span>Suivi&nbsp;30&nbsp;s</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="services-list"></div>
+                </details>
+            </section>
             </div>
 
             <!-- Colonne droite : caméra pleine hauteur -->
@@ -880,6 +975,12 @@
         const btnRecover = document.getElementById('btn-recover');
         const alertMotors = document.getElementById('alert-motors');
         const alertLink = document.getElementById('alert-link');
+        const options = document.getElementById('options');
+        const btnTemp = document.getElementById('btn-temp');
+        const tempAuto = document.getElementById('temp-auto');
+        const tempValue = document.getElementById('temp-value');
+        const tempSub = document.getElementById('temp-sub');
+        const servicesList = document.getElementById('services-list');
 
         const STATUS = {
             idle: 'Prêt',
@@ -921,6 +1022,16 @@
 
             [btnGame, btnMoves, btnCalib].forEach(
                 b => b.disabled = offline || busy || sansRobot);
+
+            // La température vient du SDK : sans robot, rien à relever.
+            // Les services, eux, ne dépendent que de systemd et restent
+            // pilotables — c'est justement l'intérêt du panneau.
+            btnTemp.disabled = offline || sansRobot;
+            tempAuto.disabled = offline || sansRobot;
+            // Griser la case n'émet aucun 'change' : sans cet arrêt, le
+            // relevé continuerait à tourner et à échouer en 503 toutes
+            // les 30 s, case grisée donc impossible à décocher.
+            if (tempAuto.disabled) arreterSuiviTemperature();
             // « Arrêter » vaut pour toute action en cours, pas seulement
             // une partie : le parcours des cases s'interrompt aussi.
             btnStop.hidden = running === null;
@@ -979,6 +1090,129 @@
             // Un seul bras : tout est grisé pendant qu'une action tourne.
             applyControls();
         }
+
+        // ------------------------------------------------------------------
+        // Panneau Options : température à la demande, services ponctuels
+        // ------------------------------------------------------------------
+
+        // ⚠️ 30 s, pas 5 : les moteurs chauffent lentement. Interroger plus
+        // souvent coûterait des requêtes SDK pour une information qui ne
+        // bouge pratiquement pas — c'est contraire au but du panneau.
+        const TEMP_INTERVAL_MS = 30000;
+        let tempTimer = null;
+
+        async function releverTemperatures() {
+            try {
+                const r = await fetch('/api/temperatures');
+                if (!r.ok) {
+                    tempValue.textContent = '—';
+                    tempValue.className = 'temp-badge';
+                    tempSub.textContent = 'Relevé indisponible';
+                    return;
+                }
+                const data = await r.json();
+                tempValue.textContent = (data.max === null)
+                    ? '—' : Math.round(data.max) + ' °C';
+                tempValue.className = 'temp-badge '
+                    + (data.verdict === 'ok' ? '' : data.verdict);
+
+                // Le détail moteur par moteur au survol : utile au
+                // diagnostic, sans encombrer l'écran.
+                tempValue.title = Object.entries(data.joints)
+                    .map(([nom, v]) => nom + ' : '
+                        + (v === null ? '?' : v + ' °C'))
+                    // String.fromCharCode(10) plutôt qu'un échappement :
+                    // une séquence backslash-n dans ce fichier a déjà été
+                    // transformée en vraie fin de ligne, ce qui coupe la
+                    // chaîne et rend TOUT le script inerte.
+                    .join(String.fromCharCode(10));
+
+                const heure = new Date().toLocaleTimeString('fr-FR',
+                    { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                tempSub.textContent = 'Maximum relevé à ' + heure
+                    + ' — seuil d’arrêt ' + data.thresholds.cooldown + ' °C';
+            } catch (e) {
+                tempSub.textContent = 'Relevé impossible';
+            }
+        }
+
+        btnTemp.addEventListener('click', releverTemperatures);
+
+        function arreterSuiviTemperature() {
+            if (tempTimer) { clearInterval(tempTimer); tempTimer = null; }
+        }
+
+        tempAuto.addEventListener('change', () => {
+            arreterSuiviTemperature();
+            if (tempAuto.checked) {
+                releverTemperatures();
+                tempTimer = setInterval(releverTemperatures, TEMP_INTERVAL_MS);
+            }
+        });
+
+        function ligneService(s) {
+            const actif = s.status === 'active';
+            const ligne = document.createElement('div');
+            ligne.className = 'option-row';
+            ligne.innerHTML =
+                '<div class="option-text"><strong></strong>'
+                + '<span class="option-sub"></span></div>'
+                + '<div class="option-actions">'
+                + '<span class="svc-state"></span>'
+                + '<button class="btn tool"></button></div>';
+            ligne.querySelector('strong').textContent = s.label;
+            ligne.querySelector('.option-sub').textContent = s.description;
+
+            const etat = ligne.querySelector('.svc-state');
+            etat.textContent = actif ? 'actif'
+                : (s.status === 'unknown' ? 'état inconnu' : 'arrêté');
+            etat.className = 'svc-state ' + (actif ? 'active' : '');
+
+            const bouton = ligne.querySelector('button');
+            bouton.textContent = actif ? 'Arrêter' : 'Démarrer';
+            bouton.title = actif
+                ? 'Arrête le service et libère ses ressources'
+                : 'Démarre le service pour cette session seulement : '
+                  + 'il ne reviendra pas au prochain démarrage du robot';
+            bouton.addEventListener('click', async () => {
+                bouton.disabled = true;
+                try {
+                    const r = await fetch(
+                        '/api/services/' + encodeURIComponent(s.name), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                action: actif ? 'stop' : 'start' }),
+                        });
+                    if (!r.ok) {
+                        // Sans ce contrôle, un refus serveur passerait
+                        // inaperçu : le bouton semblerait n'avoir rien fait.
+                        const d = await r.json().catch(() => ({}));
+                        showToast(d.detail || 'Action refusée');
+                    }
+                } catch (e) {
+                    showToast('Action impossible');
+                }
+                await chargerServices();
+            });
+            return ligne;
+        }
+
+        async function chargerServices() {
+            try {
+                const r = await fetch('/api/services');
+                if (!r.ok) return;
+                const data = await r.json();
+                servicesList.replaceChildren(
+                    ...data.services.map(ligneService));
+            } catch (e) { /* panneau simplement vide */ }
+        }
+
+        // Chargé seulement à l'ouverture du panneau : interroger systemd
+        // en permanence irait contre l'économie de ressources recherchée.
+        options.addEventListener('toggle', () => {
+            if (options.open) chargerServices();
+        });
 
         async function post(url) {
             try {

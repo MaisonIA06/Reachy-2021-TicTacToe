@@ -87,6 +87,25 @@ CAMERA_CONFIG = {
 
 
 # ==============================================================================
+# SEUILS THERMIQUES
+# ==============================================================================
+# ⚠️ Source unique : ces valeurs étaient codées en dur à trois endroits
+# (need_cooldown, wait_for_cooldown, et rien côté interface). L'écran doit
+# afficher les MÊMES seuils que le cycle thermique du jeu, sinon il dirait
+# « tout va bien » pendant que la partie s'interrompt pour refroidir.
+
+#: Au-dessus, le jeu s'interrompt et attend un refroidissement.
+TEMPERATURE_COOLDOWN = 50
+
+#: Seuil de reprise : on ne repart que sous cette valeur. Plus bas que le
+#: seuil d'alerte pour éviter de repartir et s'arrêter en boucle.
+TEMPERATURE_RESUME = 45
+
+#: Au-dessus, on prévient sans interrompre.
+TEMPERATURE_WARN = 45
+
+
+# ==============================================================================
 # CHEMINS DES MODÈLES
 # ==============================================================================
 
