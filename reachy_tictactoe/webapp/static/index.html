@@ -267,7 +267,13 @@
         }
 
         .status-dot.finished { background: #6dd68c; box-shadow: 0 0 0 4px rgba(109, 214, 140, 0.20); }
-        .status-dot.error { background: #f07070; box-shadow: 0 0 0 4px rgba(240, 112, 112, 0.20); }
+        .alert.info {
+            border-color: rgba(181, 96, 90, 0.35);
+            background: rgba(26, 58, 92, 0.55);
+        }
+
+        .status-dot.error,
+        .status-dot.disconnected { background: #f07070; box-shadow: 0 0 0 4px rgba(240, 112, 112, 0.20); }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -689,6 +695,17 @@
             <img src="/static/mia-logo.png" alt="MIA — La Maison de l'IA" class="mia-logo">
         </header>
 
+        <!-- Robot pas encore joint : le serveur, lui, tourne. Sans ce
+             signal, l'écran resterait vide sans dire pourquoi. -->
+        <div class="alert info" id="alert-link" hidden role="status">
+            <div class="alert-text">
+                <strong>Connexion au robot en cours…</strong>
+                <span>L'interface est bien démarrée ; elle se branchera
+                      d'elle-même dès que le robot répondra, sans qu'il y ait
+                      quoi que ce soit à relancer.</span>
+            </div>
+        </div>
+
         <!-- Panne du contrôleur moteur : le robot répond mais n'obéit
              plus. Invisible sans ce signal. -->
         <div class="alert" id="alert-motors" hidden role="alert">
@@ -862,9 +879,11 @@
         const btnStop = document.getElementById('btn-stop');
         const btnRecover = document.getElementById('btn-recover');
         const alertMotors = document.getElementById('alert-motors');
+        const alertLink = document.getElementById('alert-link');
 
         const STATUS = {
             idle: 'Prêt',
+            disconnected: 'Robot injoignable',
             playing: 'Partie en cours',
             finished: 'Partie terminée',
             error: 'Erreur',
@@ -895,9 +914,13 @@
             const offline = document.body.classList.contains('offline');
             const running = lastData ? lastData.robot.running : null;
             const busy = lastData ? lastData.robot.busy : true;
+            // Robot pas encore joint : ces actions répondraient 503.
+            // « Réparer », lui, reste cliquable — c'est tout l'intérêt.
+            const sansRobot = lastData
+                ? lastData.robot.link !== 'connected' : true;
 
             [btnGame, btnMoves, btnCalib].forEach(
-                b => b.disabled = offline || busy);
+                b => b.disabled = offline || busy || sansRobot);
             // « Arrêter » vaut pour toute action en cours, pas seulement
             // une partie : le parcours des cases s'interrompt aussi.
             btnStop.hidden = running === null;
@@ -920,9 +943,14 @@
             statusText.textContent = game.winner
                 ? (WINNER[game.winner] || game.winner)
                 : (STATUS[game.status] || game.status);
-            statusDetail.textContent = robot.last_error
-                ? robot.last_error
-                : (game.message || 'Lancez une partie pour commencer');
+            // ⚠️ Robot absent : `last_error` porte la trace gRPC brute
+            // (« failed to connect to all addresses… »). On montre alors
+            // le message explicatif, pas la pile réseau.
+            statusDetail.textContent = (robot.link !== 'connected')
+                ? game.message
+                : (robot.last_error
+                    || game.message
+                    || 'Lancez une partie pour commencer');
 
             if (game.current_player === 'robot') {
                 badgeTurn.textContent = 'Au tour de Reachy';
@@ -939,7 +967,14 @@
             badgeGames.textContent = n + (n > 1 ? ' parties' : ' partie');
 
             // Panne du contrôleur : les commandes n'aboutiraient pas.
+            // ⚠️ Ce bandeau porte le bouton « Réparer » et doit rester
+            // visible robot injoignable : c'est le seul cas où il sert.
             alertMotors.hidden = robot.motors !== 'frozen';
+
+            // Connexion pas encore établie — inutile d'alarmer si la panne
+            // moteur est déjà signalée, elle explique déjà la situation.
+            alertLink.hidden = robot.link === 'connected'
+                || robot.motors === 'frozen';
 
             // Un seul bras : tout est grisé pendant qu'une action tourne.
             applyControls();

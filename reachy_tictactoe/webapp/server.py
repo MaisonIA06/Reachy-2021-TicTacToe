@@ -17,8 +17,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..game_launcher import GameState
 from .calibration import apply_calibration
 from .controller import RobotBusy
+from .link import StaticLink
 
 logger = logging.getLogger('reachy.tictactoe.webapp')
 
@@ -98,33 +100,95 @@ def should_emit(current, previous, elapsed, heartbeat=HEARTBEAT_SECONDS):
     return current != previous or elapsed >= heartbeat
 
 
-def _snapshot(session, controller, health=None):
-    """État complet consommé par l'interface."""
-    game = asdict(session.state)
+#: État servi tant que le robot n'a pas répondu. L'interface doit dire
+#: POURQUOI rien ne bouge : un écran figé sans explication est
+#: indiscernable d'un serveur mort.
+DISCONNECTED_MESSAGE = (
+    'Robot injoignable : connexion en cours… '
+    'Si les moteurs sont en panne, utilisez « Réparer ».'
+)
+
+#: ⚠️ Construit UNE fois. ``GameState.updated_at`` vaut ``time.time()`` par
+#: défaut : un état reconstruit à chaque appel différerait du précédent,
+#: ``should_emit`` serait toujours vrai et le flux SSE émettrait toutes les
+#: 0,3 s pendant toute la panne — au lieu du battement de 8 s.
+DISCONNECTED_STATE = GameState(status='disconnected', board=(0,) * 9,
+                               message=DISCONNECTED_MESSAGE)
+
+
+def _snapshot(link, health=None):
+    """État complet consommé par l'interface.
+
+    ⚠️ Doit rester servable SANS robot : c'est ce qui garde la page — et
+    donc le bouton « Réparer » — accessible pendant une panne.
+    """
+    session = link.session
+    controller = link.controller
+
+    if session is None:
+        game = asdict(DISCONNECTED_STATE)
+        running = None
+        last_error = link.last_error
+    else:
+        game = asdict(session.state)
+        running = controller.running
+        last_error = controller.last_error
+
     game['board'] = list(game['board'])
-    running = controller.running
     return {
         'game': game,
         'robot': {
             'running': running,
             'busy': running is not None,
-            'last_error': controller.last_error,
+            'last_error': last_error,
             # 'frozen' = contrôleur moteur planté : le robot répond mais
             # aucune consigne n'aboutit. Sans ce signal, la panne est
-            # indétectable depuis l'interface.
+            # indétectable depuis l'interface. ⚠️ Lit /proc, pas le SDK :
+            # ce verdict reste donc valable robot injoignable.
             'motors': health.status if health is not None else 'unknown',
+            # 'connecting' tant que le SDK ne répond pas.
+            'link': link.status,
         },
     }
 
 
-def create_app(session, controller, health=None):
+def create_app(session=None, controller=None, health=None, link=None):
     """Construit l'application FastAPI.
 
     Args:
-        session: ``GameSession`` — source de l'état du jeu.
+        session: ``GameSession`` — source de l'état du jeu. Optionnel si
+            ``link`` est fourni.
         controller: ``RobotController`` — lance les actions du robot.
         health: ``MotorHealth`` optionnel — surveillance du bus moteur.
+        link: ``RobotLink`` optionnel — connexion établie en arrière-plan.
+            Avec lui, l'application se lève **sans robot** et se branche
+            dès qu'il répond, sans redémarrage du service.
     """
+    if link is None:
+        link = StaticLink(session, controller)
+
+    def robot_requis():
+        """Contrôleur, ou refus explicite si le robot est absent.
+
+        Mieux vaut un 503 lisible qu'une pile d'appels gRPC dans les logs
+        et un bouton qui ne répond pas.
+        """
+        controleur = link.controller
+        if controleur is None:
+            raise HTTPException(
+                status_code=503,
+                detail='Robot injoignable : connexion en cours…')
+        return controleur
+
+    def camera_requise():
+        """Caméra du robot, ou refus explicite."""
+        session_courante = link.session
+        if session_courante is None:
+            raise HTTPException(
+                status_code=503,
+                detail='Robot injoignable : pas de caméra disponible')
+        return session_courante.playground.reachy.right_camera
+
     app = FastAPI(title='Reachy TicTacToe — MIA')
     app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
 
@@ -135,12 +199,12 @@ def create_app(session, controller, health=None):
 
     @app.get('/api/state')
     def state():
-        return _snapshot(session, controller, health)
+        return _snapshot(link, health)
 
     @app.post('/api/game', status_code=202)
     def start_game():
         try:
-            controller.start_game()
+            robot_requis().start_game()
         except RobotBusy as e:
             raise HTTPException(status_code=409, detail=str(e))
         return {'started': 'game'}
@@ -148,6 +212,7 @@ def create_app(session, controller, health=None):
     @app.post('/api/moves-check', status_code=202)
     def check_moves():
         try:
+            controller = robot_requis()
             controller.check_moves()
         except RobotBusy as e:
             raise HTTPException(status_code=409, detail=str(e))
@@ -156,7 +221,7 @@ def create_app(session, controller, health=None):
     @app.post('/api/stop', status_code=202)
     def stop_action():
         """Interrompt l'action en cours, partie ou parcours (coopératif)."""
-        action = controller.stop()
+        action = robot_requis().stop()
         if action is None:
             raise HTTPException(status_code=409,
                                 detail='Aucune action en cours à arrêter')
@@ -178,17 +243,28 @@ def create_app(session, controller, health=None):
             raise HTTPException(status_code=500,
                                 detail='Script de récupération introuvable')
 
+        def lancer():
+            logger.warning('Récupération du contrôleur moteur demandée')
+            subprocess.Popen(['bash', script],
+                             stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+
+        controleur = link.controller
+        if controleur is None:
+            # ⚠️ Robot injoignable : c'est LE cas où ce bouton sert. Rien à
+            # réserver — aucune partie ne peut être en cours sans robot —
+            # et refuser ici ne laisserait que l'accès SSH à l'utilisateur.
+            lancer()
+            return {'recovering': True}
+
         # Réservation atomique : redémarrer le contrôleur pendant une
         # partie couperait le bras en pleine trajectoire, pion serré.
         # Tester `running` puis agir laisserait cette fenêtre ouverte.
         try:
-            with controller.reserve('recovery'):
-                logger.warning('Récupération du contrôleur moteur demandée')
-                subprocess.Popen(['bash', script],
-                                 stdin=subprocess.DEVNULL,
-                                 stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL,
-                                 start_new_session=True)
+            with controleur.reserve('recovery'):
+                lancer()
         except RobotBusy as e:
             raise HTTPException(status_code=409, detail=str(e))
         return {'recovering': True}
@@ -197,8 +273,7 @@ def create_app(session, controller, health=None):
     def calibration():
         """Zones de calibration, en pixels de l'image PLEIN CADRE."""
         zone, cases = board_rects()
-        frame = getattr(session.playground.reachy.right_camera,
-                        'last_frame', None)
+        frame = getattr(camera_requise(), 'last_frame', None)
         height, width = (frame.shape[:2] if frame is not None else (None, None))
         return {
             'board': zone,
@@ -216,12 +291,11 @@ def create_app(session, controller, health=None):
         agir laisserait une partie démarrer entre les deux et voir la
         calibration changer en plein ``analyze_board``.
         """
-        frame = getattr(session.playground.reachy.right_camera,
-                        'last_frame', None)
+        frame = getattr(camera_requise(), 'last_frame', None)
         image = (None if frame is None
                  else {'width': frame.shape[1], 'height': frame.shape[0]})
         try:
-            with controller.reserve('calibration'):
+            with robot_requis().reserve('calibration'):
                 board_position, _ = apply_calibration(
                     payload['board'], payload['cases'], image=image)
         except RobotBusy as e:
@@ -249,8 +323,7 @@ def create_app(session, controller, health=None):
             margin: marge autour du plateau lors du recadrage, en fraction
                 de sa taille (0.06 = 6 %).
         """
-        frame = getattr(session.playground.reachy.right_camera,
-                        'last_frame', None)
+        frame = getattr(camera_requise(), 'last_frame', None)
         if frame is None:
             # Pas d'image : réponse explicite, surtout pas une trace de
             # pile dans le navigateur.
@@ -284,7 +357,7 @@ def create_app(session, controller, health=None):
             precedent = None
             dernier_envoi = 0.0
             while True:
-                courant = _snapshot(session, controller, health)
+                courant = _snapshot(link, health)
                 maintenant = time.monotonic()
                 if should_emit(courant, precedent,
                                maintenant - dernier_envoi):

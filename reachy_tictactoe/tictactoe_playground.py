@@ -319,7 +319,15 @@ class TictactoePlayground(object):
                 'exc': exc,
             }
         )
-        # Désactiver tous les moteurs
+        self.close()
+
+    def close(self):
+        """Désactive tous les moteurs.
+
+        Extrait de ``__exit__`` pour les appelants qui ne peuvent pas
+        utiliser un ``with`` : l'interface web construit le playground
+        dans un fil de connexion et le ferme à l'arrêt du serveur.
+        """
         self.reachy.turn_off_smoothly('reachy')
         
     # Playground and game functions
