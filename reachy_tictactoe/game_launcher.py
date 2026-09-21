@@ -240,12 +240,24 @@ def run_game_loop(tictactoe_playground, report=None, should_stop=None):
             tictactoe_playground.display_board(board, winner=winner)
             publish(board=board, current_player=None, winner=winner)
 
+            # Lever les yeux vers le joueur AVANT de réagir : l'émotion
+            # s'adresse ainsi à quelqu'un, au lieu d'être jouée face au
+            # plateau. En fin de partie seulement — le jeu est trop rapide
+            # pour que ça ait du sens après chaque coup.
+            tictactoe_playground.look_at_human()
+
             if winner == 'robot':
                 tictactoe_playground.run_celebration()
             elif winner == 'human':
                 tictactoe_playground.run_defeat_behavior()
             else:
                 tictactoe_playground.run_draw_behavior()
+
+            # Revenir sur le plateau : la caméra est solidaire de la tête et
+            # l'interface web la lit en continu. Sans ce retour, la vue et
+            # le panneau de calibrage montreraient la salle jusqu'à la
+            # partie suivante — or le calibrage s'ouvre entre deux parties.
+            tictactoe_playground.look_at_board()
 
             return winner
 
@@ -388,10 +400,13 @@ class GameSession:
             self._playground.goto_rest_position()
         finally:
             self._playground.reachy.turn_off_smoothly('reachy')
-            # Le couple coupé, la tête retombe : elle n'est plus orientée
-            # vers le plateau. Sans cette invalidation, la partie suivante
-            # analyserait des images d'une tête molle (reset() ne remet le
-            # drapeau à zéro qu'APRÈS l'attente d'un plateau vide).
+            # La tête n'est plus orientée vers le plateau : en fin de
+            # partie elle regarde le joueur. Sans cette invalidation, la
+            # partie suivante analyserait des images prises vers le haut
+            # (reset() ne remet le drapeau à zéro qu'APRÈS l'attente d'un
+            # plateau vide). ⚠️ Elle ne « retombe » pas pour autant : la
+            # tête TIENT sa position couple coupé (constaté sur le robot),
+            # ce qui rend le lever de tête de fin de partie durable.
             self._playground.invalidate_head_aim()
 
 

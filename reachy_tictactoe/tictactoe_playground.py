@@ -22,7 +22,8 @@ from .motors import safe_turn_on as _safe_turn_on
 from .motors import is_holding_pawn, wait_until_settled
 from .rl_agent import value_actions
 from . import behavior
-from .config import GRIPPER_OPEN, GRIPPER_CLOSED, GRIPPER_HOLDING_THRESHOLD
+from .config import (GRIPPER_OPEN, GRIPPER_CLOSED,
+                     GRIPPER_HOLDING_THRESHOLD, CAMERA_CONFIG)
 
 
 logger = logging.getLogger('reachy.tictactoe')
@@ -388,6 +389,21 @@ class TictactoePlayground(object):
         except Exception as e:
             logger.warning(f'Look at failed: {e}')
             
+    def look_at_human(self):
+        """Lève les yeux vers le joueur — appelé en FIN DE PARTIE.
+
+        Volontairement pas après chaque coup : le jeu est rapide depuis que
+        les antennes ne bloquent plus, et un lever de tête à chaque tour
+        casserait le rythme.
+
+        La cible vient de `config` : elle dépend de la hauteur de table et
+        de la position du joueur, elle se règle donc sans toucher au code.
+        """
+        cible = CAMERA_CONFIG['look_at_human']
+        logger.info('Reachy looks at the human')
+        self.look_at(cible['x'], cible['y'], cible['z'],
+                     duration=cible['duration'])
+
     def _analysis_failed(self):
         """Comptabilise une analyse ratée ; après une série d'échecs,
         force une nouvelle visée du plateau (la tête a pu bouger)."""
@@ -457,17 +473,34 @@ class TictactoePlayground(object):
         self._looking_at_board = False
         self._failed_analyses = 0
 
+    def look_at_board(self):
+        """Oriente la tête vers le plateau et valide la visée en cache.
+
+        Appelée par ``analyze_board`` (visée paresseuse) et en fin de
+        partie, après le regard vers le joueur : sans ce retour, la tête
+        resterait tournée vers la pièce et l'interface web afficherait la
+        salle au lieu du plateau — y compris dans le panneau de calibrage,
+        qu'on ouvre justement entre deux parties.
+        """
+        self.safe_turn_on('head')
+        time.sleep(0.05)
+        cible = CAMERA_CONFIG['look_at_board']
+        self.reachy.head.look_at(
+            x=cible['x'], y=cible['y'], z=cible['z'],
+            duration=cible['duration'])
+        # Courte stabilisation avant la capture : la caméra est solidaire
+        # de la tête, qui finit d'amortir son mouvement.
+        time.sleep(0.1)
+        self._looking_at_board = True
+        self._failed_analyses = 0
+
     def analyze_board(self):
         """Analyse l'état actuel du plateau de jeu"""
         # Regarder vers le plateau (z=-0.6 pour le voir en entier),
         # seulement si la tête n'y est pas déjà : la boucle de jeu
         # appelle cette méthode plusieurs fois par seconde.
         if not self._looking_at_board:
-            self.safe_turn_on('head')
-            time.sleep(0.05)
-            self.reachy.head.look_at(x=0.5, y=0, z=-0.6, duration=1.0)
-            time.sleep(0.1)
-            self._looking_at_board = True
+            self.look_at_board()
 
         # Attendre une image de la caméra
         self.wait_for_img()

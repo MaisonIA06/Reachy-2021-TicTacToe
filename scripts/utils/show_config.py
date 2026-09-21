@@ -85,12 +85,14 @@ def print_config_detailed():
     # Paramètres de la caméra
     print("🎥 PARAMÈTRES DE LA CAMÉRA")
     print("-" * 80)
-    look_at = config.CAMERA_CONFIG['look_at_board']
-    print(f"   Position pour voir le plateau:")
-    print(f"      x        : {look_at['x']}")
-    print(f"      y        : {look_at['y']}")
-    print(f"      z        : {look_at['z']}")
-    print(f"      duration : {look_at['duration']}s")
+    for cle, libelle in (('look_at_board', 'Position pour voir le plateau'),
+                         ('look_at_human', 'Position pour regarder le joueur')):
+        cible = config.CAMERA_CONFIG[cle]
+        print(f"   {libelle} :")
+        print(f"      x        : {cible['x']}")
+        print(f"      y        : {cible['y']}")
+        print(f"      z        : {cible['z']}")
+        print(f"      duration : {cible['duration']}s")
     print()
     
     # Instructions

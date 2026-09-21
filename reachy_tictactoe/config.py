@@ -73,6 +73,16 @@ CAMERA_CONFIG = {
         'z': -0.6,
         'duration': 1.0,
     },
+    # Position de la tête pour regarder le JOUEUR, en fin de partie.
+    # ⚠️ À régler sur le robot, joueur en place : la bonne hauteur dépend
+    # de la table et de la taille de la personne. z plus grand = regard
+    # plus haut ; x plus grand = regard plus loin devant.
+    'look_at_human': {
+        'x': 0.8,
+        'y': 0.0,
+        'z': 0.1,
+        'duration': 1.0,
+    },
 }
 
 
@@ -220,8 +230,9 @@ def print_config():
             print(f"      Case ({row},{col}): ({left:3d}, {right:3d}, {top:3d}, {bottom:3d})")
     print()
     print("🎥 Configuration caméra:")
-    look_at = CAMERA_CONFIG['look_at_board']
-    print(f"   Position: x={look_at['x']}, y={look_at['y']}, z={look_at['z']}")
+    for nom, libelle in (('look_at_board', 'Plateau'), ('look_at_human', 'Joueur')):
+        cible = CAMERA_CONFIG[nom]
+        print(f"   {libelle:8s}: x={cible['x']}, y={cible['y']}, z={cible['z']}")
     print()
 
 
