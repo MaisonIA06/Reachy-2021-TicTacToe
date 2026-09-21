@@ -200,5 +200,13 @@ def test_thinking_logge_l_echec_du_son(monkeypatch, caplog):
     monkeypatch.setattr(behavior, 'play_sound_safe', broken_sound)
     behavior.thinking(MagicMock())
 
+    # ⚠️ thinking ne bloque plus : ni sur le son, ni sur les antennes. Le
+    # test s'appuyait jusqu'ici sur l'animation bloquante (~1,5 s) comme
+    # délai implicite pour laisser le worker échouer. On draine donc la
+    # file des SONS, la seule dont dépend l'assertion. Surtout pas celle
+    # des antennes : son animation n'est pas stubbée ici (~1,5 s réelles)
+    # et l'attendre rendrait le test tributaire de la charge machine.
+    behavior._sound_executor.submit(lambda: None).result(timeout=5)
+
     assert any('boom audio' in str(record.message)
                for record in caplog.records)

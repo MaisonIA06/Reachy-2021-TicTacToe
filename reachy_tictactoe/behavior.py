@@ -10,7 +10,11 @@ import random
 import subprocess
 import shutil
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
+# ⚠️ Avant Python 3.11, concurrent.futures.TimeoutError est une classe
+# DISTINCTE du TimeoutError natif : un `except TimeoutError` nu ne
+# l'attrape pas. Le robot tourne en 3.10 — d'où l'import explicite.
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from reachy_sdk.trajectory import goto
 from reachy_sdk.trajectory.interpolation import InterpolationMode
 
@@ -19,16 +23,25 @@ logger = logging.getLogger('reachy.tictactoe.behavior')
 
 
 # ============================================================================
-# THREADPOOL GLOBAL POUR OPTIMISATION DES PERFORMANCES
+# UN EXECUTOR PAR RESSOURCE EXCLUSIVE
 # ============================================================================
-
-# Pool de threads réutilisable (évite création/destruction répétée de threads)
-_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="reachy_behavior_")
+# Chaque executor n'a qu'UN worker : il ne sert pas à paralléliser, mais à
+# garantir qu'une ressource physique exclusive n'est pilotée que par un
+# seul fil à la fois. La sérialisation est ainsi structurelle, et non
+# laissée à la vigilance des appelants.
 
 # Executor dédié aux sons joués en tâche de fond : UN seul worker, car le
 # périphérique ALSA (hw:0,0) est exclusif — deux mpg123 simultanés
 # échoueraient en « device busy ». La file d'attente sérialise les sons.
 _sound_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reachy_sound_")
+
+# Executor dédié aux antennes : UN seul worker, car les deux antennes sont
+# une ressource exclusive — deux animations simultanées écriraient
+# concurremment dans `goal_position` et se disputeraient la consigne.
+# C'est ce qui permet de rendre `thinking` non bloquant sans risque : la
+# sérialisation est structurelle, pas laissée à la vigilance des appelants.
+_antenna_executor = ThreadPoolExecutor(max_workers=1,
+                                       thread_name_prefix="reachy_antenna_")
 
 
 def _log_sound_failure(future):
@@ -56,38 +69,76 @@ def play_sound_background(sound_path, device='hw:0,0'):
 TASK_TIMEOUT = 15  # secondes
 
 
-def run_parallel_tasks(*tasks, timeout=TASK_TIMEOUT):
-    """
-    Exécute plusieurs tâches en parallèle avec gestion des erreurs et timeout.
-    
+def _log_animation_failure(future):
+    """Callback de fin : une animation lancée en fond ne doit pas échouer
+    silencieusement (Future orphelin)."""
+    exc = future.exception()
+    if exc is not None:
+        logger.warning(f'Antenna animation failed: {exc}')
+
+
+def animate_antennas(animation, wait=True, timeout=TASK_TIMEOUT):
+    """Joue une animation d'antennes sur l'executor dédié.
+
     Args:
-        *tasks: Fonctions à exécuter en parallèle
-        timeout: Timeout global en secondes
-        
+        animation: fonction sans argument qui pilote les antennes
+        wait: True pour attendre la fin (fin de partie : la durée EST le
+            spectacle), False pour rendre la main aussitôt (pendant une
+            partie : le bras doit pouvoir partir tout de suite)
+        timeout: sécurité pour le mode bloquant
+
     Returns:
-        list: Résultats des tâches (ou None si erreur)
+        Future: poignée sur l'animation, pour l'attendre plus tard
     """
-    if not tasks:
-        return []
-    
-    futures = [_executor.submit(task) for task in tasks]
-    results = []
-    
+    future = _antenna_executor.submit(animation)
+    # Dans les deux modes : un échec survenu APRÈS notre attente (ou
+    # pendant, en mode non bloquant) doit rester visible dans les logs.
+    future.add_done_callback(_log_animation_failure)
+
+    if not wait:
+        return future
+
     try:
-        for future in as_completed(futures, timeout=timeout):
-            try:
-                result = future.result(timeout=1)
-                results.append(result)
-            except Exception as e:
-                logger.warning(f'Task failed: {e}')
-                results.append(None)
-    except TimeoutError:
-        logger.warning(f'Parallel tasks timed out after {timeout}s')
-        # Annuler les tâches en cours
-        for future in futures:
-            future.cancel()
-    
-    return results
+        future.result(timeout=timeout)
+    except FutureTimeoutError:
+        # ⚠️ Un seul worker : l'animation continue d'occuper la file et les
+        # suivantes attendront derrière elle. On ne peut pas l'annuler (une
+        # tâche démarrée n'est pas interruptible), mais l'incident doit être
+        # signalé — un dépassement de TASK_TIMEOUT sur une animation de
+        # quelques secondes trahit un robot qui ne répond plus.
+        logger.warning(
+            f'Antenna animation still running after {timeout}s — '
+            'les animations suivantes attendront derrière elle')
+    except Exception as erreur:
+        # Une animation ratée ne doit jamais interrompre la partie.
+        logger.warning(f'Antenna animation failed: {erreur}')
+
+    return future
+
+
+def _animate_and_play(animation, play_sound, timeout=TASK_TIMEOUT):
+    """Animation et son en parallèle, en attendant les deux.
+
+    Réservé aux comportements de FIN de partie : rien ne les suit, donc
+    leur durée ne coûte aucune latence de jeu.
+
+    ⚠️ Le son passe par ``_sound_executor`` (un seul worker) et non par le
+    pool généraliste : le périphérique ALSA est exclusif, deux ``mpg123``
+    simultanés échoueraient. Un son de célébration pouvait auparavant
+    recouvrir un son de réflexion encore en cours.
+    """
+    son = _sound_executor.submit(play_sound)
+    son.add_done_callback(_log_sound_failure)
+
+    animation_future = animate_antennas(animation, wait=True, timeout=timeout)
+
+    try:
+        son.result(timeout=timeout)
+    except Exception as erreur:
+        # Déjà loggé par le callback ; on ne propage pas.
+        logger.debug(f'End-of-game sound: {erreur}')
+
+    return animation_future
 
 
 def _find_audio_player():
@@ -136,10 +187,39 @@ def play_sound_safe(sound_path, device='hw:0,0'):
         logger.error(f'Sound playback failed: {e}')
 
 
+def move_antennas(reachy, left, right, duration=1.0, wait=True):
+    """Amène les deux antennes à une position donnée, via l'executor dédié.
+
+    À préférer à un ``goto`` direct partout hors d'une animation : c'est ce
+    qui rend l'exclusivité des antennes structurelle plutôt que dépendante
+    de la vigilance de l'appelant.
+
+    ⚠️ **Ne JAMAIS appeler depuis une animation déjà en cours** : l'executor
+    n'a qu'un worker, une attente sur lui-même se bloquerait pour toujours.
+    Les animations utilisent ``head_home``, qui appelle ``goto``
+    directement — elles s'exécutent déjà dans le worker.
+    """
+    def mouvement():
+        goto(
+            goal_positions={
+                reachy.head.l_antenna: left,
+                reachy.head.r_antenna: right,
+            },
+            duration=duration,
+            interpolation_mode=InterpolationMode.MINIMUM_JERK,
+        )
+
+    return animate_antennas(mouvement, wait=wait)
+
+
 def head_home(reachy, duration=1.0):
     """
-    Remet la tête en position neutre
-    
+    Remet la tête en position neutre.
+
+    ⚠️ Appelée DEPUIS les animations (donc déjà dans le worker antennes) :
+    elle fait un ``goto`` direct, sans repasser par l'executor — sinon
+    l'animation attendrait sa propre file et se bloquerait pour toujours.
+
     Args:
         reachy: Instance ReachySDK
         duration: Durée du mouvement
@@ -193,10 +273,11 @@ def sad(reachy):
         logger.info(f'Playing sound: {selected_sound}')
         play_sound_safe(sound_path)
 
-    # Exécuter en parallèle avec ThreadPoolExecutor
-    run_parallel_tasks(antenna_movement, play_sound)
-    
+    # Fin de partie : on attend la fin du spectacle.
+    animation = _animate_and_play(antenna_movement, play_sound)
+
     logger.info('Ending behavior', extra={'behavior': 'sad'})
+    return animation
 
 def surprise(reachy):
     """
@@ -268,10 +349,11 @@ def surprise(reachy):
         logger.info('Playing draw sound: Egalité.mp3')
         play_sound_safe(sound_path)
     
-    # Exécuter en parallèle avec ThreadPoolExecutor
-    run_parallel_tasks(antenna_movement, play_sound)
-    
+    # Fin de partie : on attend la fin du spectacle.
+    animation = _animate_and_play(antenna_movement, play_sound)
+
     logger.info('Ending behavior', extra={'behavior': 'surprise'})
+    return animation
 
 
 def celebrate(reachy):
@@ -330,10 +412,11 @@ def celebrate(reachy):
         logger.info(f'Playing celebration sound: {selected_sound}')
         play_sound_safe(sound_path)
     
-    # Exécuter en parallèle avec ThreadPoolExecutor
-    run_parallel_tasks(antenna_movement, play_sound)
-    
+    # Fin de partie : on attend la fin du spectacle.
+    animation = _animate_and_play(antenna_movement, play_sound)
+
     logger.info('Ending behavior', extra={'behavior': 'celebrate'})
+    return animation
 
 
 def thinking(reachy, used_sounds=None):
@@ -394,9 +477,13 @@ def thinking(reachy, used_sounds=None):
         logger.info(f'Playing sound: {selected_sound}')
         play_sound_safe(sound_path)
 
-    # Son en tâche de fond : le bras ne doit pas attendre la fin du MP3
-    # pour commencer à jouer. Échec loggé via le callback.
+    # Son ET antennes en tâche de fond : le bras ne doit attendre ni la fin
+    # du MP3, ni celle de l'animation. `thinking` est appelé juste avant que
+    # Reachy choisisse et joue son coup — bloquer ici immobilisait le bras
+    # ~1,5 s à chaque tour, soit 6 à 7 s par partie. Antennes et bras ne
+    # partagent aucun moteur : rien ne justifiait de les sérialiser.
     _sound_executor.submit(play_sound).add_done_callback(_log_sound_failure)
-    run_parallel_tasks(antenna_movement)
+    animation = animate_antennas(antenna_movement, wait=False)
 
     logger.info('Ending behavior', extra={'behavior': 'thinking'})
+    return animation

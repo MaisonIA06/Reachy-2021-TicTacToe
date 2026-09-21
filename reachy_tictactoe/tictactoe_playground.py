@@ -254,15 +254,8 @@ class TictactoePlayground(object):
         # Activer les moteurs des antennes
         self.safe_turn_on('head')
         
-        # Position initiale des antennes
-        goto(
-            goal_positions={
-                self.reachy.head.l_antenna: 0.0,
-                self.reachy.head.r_antenna: 0.0,
-            },
-            duration=2.0,
-            interpolation_mode=InterpolationMode.MINIMUM_JERK,
-        )
+        # Position initiale des antennes (bloquante : rien ne presse au setup)
+        behavior.move_antennas(self.reachy, 0.0, 0.0, duration=2.0)
         
         self.goto_rest_position()
         
@@ -355,9 +348,16 @@ class TictactoePlayground(object):
         time.sleep(0.5)
     
     def run_thinking_behavior(self):
-        """Comportement de réflexion"""
+        """Comportement de réflexion — NE BLOQUE PAS.
+
+        Les antennes s'animent pendant que Reachy choisit puis joue son
+        coup : antennes et bras ne partagent aucun moteur. La poignée
+        renvoyée permet d'attendre l'animation si besoin (avant de couper
+        le couple de la tête, par exemple).
+        """
         logger.info('Reachy is thinking about its next move')
-        behavior.thinking(self.reachy, used_sounds=self.used_thinking_sounds)
+        return behavior.thinking(
+            self.reachy, used_sounds=self.used_thinking_sounds)
 
     def coin_flip(self):
         """Détermine qui commence (aléatoire)"""
@@ -606,12 +606,10 @@ class TictactoePlayground(object):
             except Exception as e:
                 logger.error(f'Erreur lors de la lecture du son: {e}')
 
-        # Créer les trois threads pour les mouvements parallèles
-        antenna_thread = Thread(target=ears_no)
+        # Antennes : par l'executor dédié, pour ne pas concurrencer une
+        # animation de réflexion encore en cours (elles ne bloquent plus).
+        antenna_animation = behavior.animate_antennas(ears_no, wait=False)
         sound_thread = Thread(target=play_random_sound)
-
-        # Démarrer le son et les antennes en parallèle
-        antenna_thread.start()
         sound_thread.start()
 
         # Effectuer les mouvements du bras
@@ -620,7 +618,7 @@ class TictactoePlayground(object):
         self.goto_rest_position()
 
         # Attendre que les antennes et le son soient terminés
-        antenna_thread.join()
+        antenna_animation.result(timeout=behavior.TASK_TIMEOUT)
         sound_thread.join()
         
     def choose_next_action(self, board):
@@ -784,15 +782,10 @@ class TictactoePlayground(object):
                 f'{grab_index}'
             )
     
-        # Animation des antennes (SDK 2021 travaille en degrés)
-        goto(
-            goal_positions={
-                self.reachy.head.l_antenna: 45,
-                self.reachy.head.r_antenna: -45,
-            },
-            duration=1.0,
-            interpolation_mode=InterpolationMode.MINIMUM_JERK,
-        )
+        # Animation des antennes — NE BLOQUE PAS. `goto` est bloquant : ces
+        # deux gestes d'antennes coûtaient 1 s chacun, bras immobile, alors
+        # qu'antennes et bras ne partagent aucun moteur.
+        behavior.move_antennas(self.reachy, 45, -45, duration=1.0, wait=False)
         
         # Ajustement pour les pions éloignés
         if grab_index >= 4:
@@ -832,15 +825,8 @@ class TictactoePlayground(object):
             filter_gripper=True,
         )
         
-        # Remettre les antennes à zéro
-        goto(
-            goal_positions={
-                self.reachy.head.l_antenna: 0.0,
-                self.reachy.head.r_antenna: 0.0,
-            },
-            duration=1.0,
-            interpolation_mode=InterpolationMode.MINIMUM_JERK,
-        )
+        # Remettre les antennes à zéro, pendant que le bras se repose.
+        behavior.move_antennas(self.reachy, 0.0, 0.0, duration=1.0, wait=False)
     
         self.goto_rest_position()
         
@@ -1230,7 +1216,16 @@ class TictactoePlayground(object):
         self._idle_running.set()
         
         def _idle():
-            """Animation d'attente des antennes"""
+            """Animation d'attente des antennes.
+
+            ⚠️ Seule animation d'antennes à NE PAS passer par
+            ``behavior.animate_antennas`` : sa boucle est infinie (elle
+            tourne jusqu'à ``leave_sleep_mode``) et monopoliserait à jamais
+            l'unique worker de l'executor, bloquant toutes les autres.
+            L'exclusivité reste garantie autrement : la veille n'existe
+            qu'entre deux parties, et ``leave_sleep_mode`` joint ce thread
+            avant qu'une partie — donc qu'une autre animation — démarre.
+            """
             f = 0.15
             amp = 30
             offset = 30
@@ -1250,12 +1245,5 @@ class TictactoePlayground(object):
         """Sort du mode veille"""
         self._idle_running.clear()
         self._idle_t.join()
-        
-        goto(
-            goal_positions={
-                self.reachy.head.l_antenna: 0.0,
-                self.reachy.head.r_antenna: 0.0,
-            },
-            duration=1.0,
-            interpolation_mode=InterpolationMode.MINIMUM_JERK,
-        )
+
+        behavior.move_antennas(self.reachy, 0.0, 0.0, duration=1.0)
