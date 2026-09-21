@@ -5,6 +5,7 @@ Ce module gère la logique du jeu et le contrôle du robot Reachy V1
 import numpy as np
 import cv2 as cv
 import logging
+import math
 import sys
 import threading
 import time
@@ -1205,11 +1206,25 @@ class TictactoePlayground(object):
         panneau « Options » de l'interface, sans qu'aucun service de
         surveillance ne tourne en permanence.
 
+        ⚠️ **Les valeurs non finies sont ramenées à None.** Constaté sur
+        le robot : certains moteurs renvoient ``NaN``. Deux conséquences,
+        toutes deux silencieuses — ``json.dumps`` refuse ``NaN`` (l'API
+        des températures répondait 500), et surtout ``NaN > seuil`` vaut
+        **False**, donc ``need_cooldown`` ignorerait ce moteur et le jeu
+        continuerait avec un moteur potentiellement brûlant.
+
         Returns:
-            dict: nom du joint → °C (ou None si le moteur ne répond pas).
+            dict: nom du joint → °C (ou None si le moteur ne répond pas
+            ou renvoie une valeur inexploitable).
         """
-        return {joint.name: joint.temperature
-                for joint in self.reachy.joints.values()}
+        releve = {}
+        for joint in self.reachy.joints.values():
+            temperature = joint.temperature
+            if (not isinstance(temperature, (int, float))
+                    or not math.isfinite(temperature)):
+                temperature = None
+            releve[joint.name] = temperature
+        return releve
 
     def need_cooldown(self):
         """Vérifie si un refroidissement est nécessaire"""

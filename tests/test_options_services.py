@@ -318,3 +318,52 @@ class TestEchecsSystemd:
         assert not caplog.records, (
             f'un service arrêté ne doit rien signaler : {caplog.records}'
         )
+
+
+class TestValeursAberrantes:
+    """⚠️ Constaté sur le robot le 2026-09-21 : certains moteurs renvoient
+    NaN. Deux conséquences, toutes deux silencieuses :
+
+    - ``json.dumps`` refuse NaN — l'API répondait 500 ;
+    - ``NaN > seuil`` vaut **False**, donc ``need_cooldown`` ignorerait ce
+      moteur et le jeu continuerait avec un moteur potentiellement brûlant.
+    """
+
+    def _playground_avec(self, playground, temperatures):
+        joints = {}
+        for nom, valeur in temperatures.items():
+            joint = MagicMock()
+            joint.name = nom
+            joint.temperature = valeur
+            joints[nom] = joint
+        playground.reachy.joints = joints
+        return playground
+
+    def test_nan_devient_none(self, playground):
+        self._playground_avec(playground, {'a': float('nan'), 'b': 40.0})
+
+        releve = playground.read_temperatures()
+
+        assert releve['a'] is None
+        assert releve['b'] == 40.0
+
+    def test_infini_devient_none(self, playground):
+        self._playground_avec(playground, {'a': float('inf')})
+        assert playground.read_temperatures()['a'] is None
+
+    def test_le_releve_est_serialisable_en_json(self, playground):
+        import json
+        self._playground_avec(playground, {'a': float('nan'), 'b': 40.0})
+
+        # allow_nan=False : exactement ce que fait Starlette.
+        json.dumps(playground.read_temperatures(), allow_nan=False)
+
+    def test_un_moteur_en_nan_ne_masque_pas_une_surchauffe(self, playground):
+        from reachy_tictactoe import config
+
+        self._playground_avec(playground, {
+            'muet': float('nan'),
+            'brulant': config.TEMPERATURE_COOLDOWN + 5,
+        })
+
+        assert playground.need_cooldown() is True
