@@ -21,6 +21,7 @@ from .. import config
 from ..game_launcher import GameState
 from .calibration import apply_calibration
 from .controller import RobotBusy
+from .battery import BatteryUnavailable, verdict as battery_verdict
 from .link import StaticLink
 from . import services as services_module
 
@@ -154,7 +155,8 @@ def _snapshot(link, health=None):
     }
 
 
-def create_app(session=None, controller=None, health=None, link=None):
+def create_app(session=None, controller=None, health=None, link=None,
+               battery_reader=None):
     """Construit l'application FastAPI.
 
     Args:
@@ -165,6 +167,9 @@ def create_app(session=None, controller=None, health=None, link=None):
         link: ``RobotLink`` optionnel — connexion établie en arrière-plan.
             Avec lui, l'application se lève **sans robot** et se branche
             dès qu'il répond, sans redémarrage du service.
+        battery_reader: fonction sans argument renvoyant la tension de la
+            batterie en volts (ou levant ``BatteryUnavailable``). Optionnel :
+            sans lui, ``/api/battery`` répond 503.
     """
     if link is None:
         link = StaticLink(session, controller)
@@ -378,6 +383,34 @@ def create_app(session=None, controller=None, health=None, link=None):
             'verdict': verdict,
             'thresholds': {'warn': config.TEMPERATURE_WARN,
                            'cooldown': config.TEMPERATURE_COOLDOWN},
+        }
+
+    @app.get('/api/battery')
+    def battery_level():
+        """Tension de la batterie, relevée à la demande.
+
+        Découplée du jeu : la base mobile peut être arrêtée depuis le
+        panneau Options, auquel cas on répond 503 explicitement — surtout
+        pas une pile d'appels gRPC.
+        """
+        if battery_reader is None:
+            raise HTTPException(status_code=503,
+                                detail='Relevé batterie non configuré')
+        try:
+            voltage = battery_reader()
+        except BatteryUnavailable as erreur:
+            raise HTTPException(
+                status_code=503,
+                detail=f'Base mobile injoignable ({erreur}) : '
+                       'son service est-il arrêté ?')
+
+        etat = battery_verdict(voltage)
+        return {
+            # Une valeur non finie n'est pas sérialisable : 'unknown' → None.
+            'voltage': voltage if etat != 'unknown' else None,
+            'verdict': etat,
+            'thresholds': {'warn': config.BATTERY_WARN_VOLTAGE,
+                           'min': config.BATTERY_MIN_VOLTAGE},
         }
 
     @app.get('/api/services')

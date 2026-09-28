@@ -106,6 +106,22 @@ TEMPERATURE_WARN = 45
 
 
 # ==============================================================================
+# SEUILS BATTERIE (miroir de Pollen — ne pas « améliorer »)
+# ==============================================================================
+# Source : zuuu_hal.py (reachy_ws/src/reachy_2023/mobile_base_controller/
+# zuuu_hal) — 7 cellules, alerte à 3,5 V/cellule, freinage d'urgence des
+# roues à 3,3 V/cellule. Ce sont les seuils qui DÉCLENCHENT réellement la
+# sécurité : en afficher d'autres tromperait l'utilisateur. Le BMS de la
+# batterie coupe lui-même vers 20 V ± 1 V (2,86 V/cellule).
+
+# ⚠️ Arrondis : 7 × 3.3 vaut 23.099999999999998 en flottant, et cette
+# valeur partirait telle quelle dans l'API puis à l'écran.
+BATTERY_CELLS = 7
+BATTERY_WARN_VOLTAGE = round(BATTERY_CELLS * 3.5, 1)   # 24,5 V : recharger
+BATTERY_MIN_VOLTAGE = round(BATTERY_CELLS * 3.3, 1)    # 23,1 V : roues freinées
+
+
+# ==============================================================================
 # CHEMINS DES MODÈLES
 # ==============================================================================
 

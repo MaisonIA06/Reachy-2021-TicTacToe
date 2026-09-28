@@ -884,6 +884,16 @@
                         </div>
                     </div>
 
+                    <div class="option-row">
+                        <div class="option-text">
+                            <strong>Batterie</strong>
+                            <span class="option-sub" id="batt-sub">Relevé à la demande — mêmes seuils que la sécurité de Pollen</span>
+                        </div>
+                        <div class="option-actions">
+                            <span class="temp-badge" id="batt-value" title="Aucun relevé">—</span>
+                        </div>
+                    </div>
+
                     <div id="services-list"></div>
                 </details>
             </section>
@@ -981,6 +991,8 @@
         const tempValue = document.getElementById('temp-value');
         const tempSub = document.getElementById('temp-sub');
         const servicesList = document.getElementById('services-list');
+        const battValue = document.getElementById('batt-value');
+        const battSub = document.getElementById('batt-sub');
 
         const STATUS = {
             idle: 'Prêt',
@@ -1023,11 +1035,12 @@
             [btnGame, btnMoves, btnCalib].forEach(
                 b => b.disabled = offline || busy || sansRobot);
 
-            // La température vient du SDK : sans robot, rien à relever.
-            // Les services, eux, ne dépendent que de systemd et restent
-            // pilotables — c'est justement l'intérêt du panneau.
-            btnTemp.disabled = offline || sansRobot;
-            tempAuto.disabled = offline || sansRobot;
+            // Le bouton sert deux capteurs. La batterie passe par son propre
+            // canal vers la base mobile, indépendant du SDK : elle doit rester
+            // lisible robot injoignable — c'est même là qu'on en a besoin.
+            // Sans robot, la température répond simplement « indisponible ».
+            btnTemp.disabled = offline;
+            tempAuto.disabled = offline;
             // Griser la case n'émet aucun 'change' : sans cet arrêt, le
             // relevé continuerait à tourner et à échouer en 503 toutes
             // les 30 s, case grisée donc impossible à décocher.
@@ -1136,7 +1149,47 @@
             }
         }
 
-        btnTemp.addEventListener('click', releverTemperatures);
+        // La sécurité batterie de Pollen ne prévient que dans le journal
+        // système : cet affichage est le seul endroit où une batterie
+        // faible se voit. Mêmes seuils que ceux qui freinent les roues.
+        async function releverBatterie() {
+            try {
+                const r = await fetch('/api/battery');
+                if (!r.ok) {
+                    const d = await r.json().catch(() => ({}));
+                    battValue.textContent = '—';
+                    battValue.className = 'temp-badge';
+                    battSub.textContent = d.detail || 'Relevé indisponible';
+                    return;
+                }
+                const data = await r.json();
+                battValue.textContent = (data.voltage === null)
+                    ? '—' : data.voltage.toFixed(1) + ' V';
+                // Mêmes couleurs que la température : orange = à surveiller,
+                // rouge = la sécurité agit.
+                battValue.className = 'temp-badge '
+                    + ({ low: 'warm', critical: 'cooldown' }[data.verdict] || '');
+                const libelle = {
+                    ok: 'Batterie correcte',
+                    low: 'Batterie faible : recharger',
+                    critical: 'Batterie critique : roues freinées par la sécurité',
+                    unknown: 'Tension inconnue',
+                }[data.verdict] || data.verdict;
+                battSub.textContent = libelle + ' — recharger sous '
+                    + Number(data.thresholds.warn).toFixed(1) + ' V, roues freinées sous '
+                    + Number(data.thresholds.min).toFixed(1) + ' V';
+            } catch (e) {
+                battSub.textContent = 'Relevé impossible';
+            }
+        }
+
+        // Un seul bouton et un seul suivi pour les deux capteurs.
+        function releverCapteurs() {
+            releverTemperatures();
+            releverBatterie();
+        }
+
+        btnTemp.addEventListener('click', releverCapteurs);
 
         function arreterSuiviTemperature() {
             if (tempTimer) { clearInterval(tempTimer); tempTimer = null; }
@@ -1145,8 +1198,8 @@
         tempAuto.addEventListener('change', () => {
             arreterSuiviTemperature();
             if (tempAuto.checked) {
-                releverTemperatures();
-                tempTimer = setInterval(releverTemperatures, TEMP_INTERVAL_MS);
+                releverCapteurs();
+                tempTimer = setInterval(releverCapteurs, TEMP_INTERVAL_MS);
             }
         });
 

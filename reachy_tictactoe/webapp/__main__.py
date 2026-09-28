@@ -18,6 +18,7 @@ import uvicorn
 
 from .. import TictactoePlayground
 from ..game_launcher import GameSession
+from . import battery
 from .controller import RobotController
 from .health import MotorHealth
 from .link import RobotLink
@@ -111,7 +112,11 @@ def main():
         args.host, register=lambda pg: en_construction.update(playground=pg)))
     link.start()
 
-    app = create_app(link=link, health=MotorHealth(local=local))
+    app = create_app(
+        link=link, health=MotorHealth(local=local),
+        # Relevé ponctuel par un canal gRPC éphémère : la base mobile peut
+        # être arrêtée depuis le panneau Options, le jeu n'en dépend pas.
+        battery_reader=lambda: battery.read_voltage(args.host))
 
     logger.info(f'Interface disponible sur http://{args.bind}:{args.port}/')
     try:
