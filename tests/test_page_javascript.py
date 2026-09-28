@@ -72,3 +72,22 @@ def test_le_javascript_de_la_page_est_syntaxiquement_valide(tmp_path):
             f"d'index.html — la page entière serait inerte :\n"
             f'{resultat.stderr}'
         )
+
+
+def test_tout_identifiant_du_script_existe_dans_la_page():
+    """Garde générique : un ``getElementById('x')`` sans élément ``id="x"``
+    renvoie null, et la première utilisation plante le script — donc TOUTE
+    la page (un seul bloc script). Une faute de frappe dans un id ne se
+    verrait qu'au clic, sur le robot. Même famille que la vérification de
+    syntaxe ci-dessus : une erreur qui rend la page inerte tout en
+    l'affichant normalement."""
+    with open(PAGE, encoding='utf-8') as f:
+        html = f.read()
+
+    utilises = set(re.findall(r"getElementById\('([^']+)'\)", html))
+    definis = set(re.findall(r' id="([^"]+)"', html))
+
+    assert utilises, "aucun getElementById trouvé : l'extraction a cassé"
+    manquants = utilises - definis
+    assert not manquants, (
+        f'ids utilisés par le script mais absents du HTML : {sorted(manquants)}')

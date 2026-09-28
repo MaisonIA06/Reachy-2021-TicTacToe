@@ -22,6 +22,7 @@ from ..game_launcher import GameState
 from .calibration import apply_calibration
 from .controller import RobotBusy
 from .battery import BatteryUnavailable, verdict as battery_verdict
+from .joints import labels_for
 from .link import StaticLink
 from . import services as services_module
 
@@ -362,8 +363,10 @@ def create_app(session=None, controller=None, health=None, link=None,
                 detail='Robot injoignable : températures indisponibles')
 
         releve = session_courante.playground.read_temperatures()
-        valeurs = [t for t in releve.values() if t is not None]
-        maximum = max(valeurs) if valeurs else None
+        valides = {nom: t for nom, t in releve.items() if t is not None}
+        # Le moteur le plus chaud, NOMMÉ : un nombre seul ne dit rien.
+        hottest, maximum = (max(valides.items(), key=lambda kv: kv[1])
+                            if valides else (None, None))
 
         # ⚠️ Mêmes seuils que le cycle thermique du jeu : un écran plus
         # optimiste annoncerait « tout va bien » pendant que la partie
@@ -379,6 +382,8 @@ def create_app(session=None, controller=None, health=None, link=None,
 
         return {
             'joints': releve,
+            'labels': labels_for(releve),
+            'hottest': hottest,
             'max': maximum,
             'verdict': verdict,
             'thresholds': {'warn': config.TEMPERATURE_WARN,

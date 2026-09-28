@@ -278,6 +278,101 @@
 
         .svc-state.active { background: rgba(109, 214, 140, 0.25); }
 
+        .modal {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(10, 22, 38, 0.72);
+        }
+
+        /* ⚠️ display:flex l'emporterait sur [hidden] (même piège que .btn). */
+        .modal[hidden] { display: none; }
+
+        .modal-card {
+            width: 100%;
+            max-width: 560px;
+            max-height: 90vh;
+            overflow: auto;
+        }
+
+        .modal-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .modal-head h2 {
+            flex: 1;
+            margin: 0;
+            font-size: 1.05rem;
+        }
+
+        /* .btn vaut width:100% ; dans l'en-tête il écraserait le titre. */
+        .modal-head .btn { width: auto; }
+
+        .modal-close {
+            background: none;
+            border: 0;
+            color: inherit;
+            font-size: 1.5rem;
+            line-height: 1;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 8px;
+        }
+
+        .modal-close:hover, .modal-close:focus-visible {
+            background: rgba(255, 255, 255, 0.10);
+        }
+
+        .temp-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .temp-table th {
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.76rem;
+            opacity: 0.65;
+            padding: 6px 8px;
+        }
+
+        .temp-table td {
+            padding: 7px 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .temp-tech {
+            opacity: 0.55;
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            font-size: 0.8rem;
+        }
+
+        .temp-val {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .temp-row.warm .temp-val { color: #f0b45a; }
+        .temp-row.cooldown .temp-val { color: #f07070; }
+        .temp-row.none .temp-val { opacity: 0.45; }
+        .temp-empty { text-align: center; opacity: 0.6; }
+
+        .modal-foot {
+            margin-top: 10px;
+            font-size: 0.78rem;
+            opacity: 0.7;
+        }
+
         .card-title {
             font-size: 0.78rem;
             font-weight: 700;
@@ -923,6 +1018,34 @@
     </div>
 
     <!-- ================= Calibration ================= -->
+    <!-- Fenêtre des températures : tous les moteurs, avec leur nom.
+         « Relever » l'ouvre ; le suivi 30 s la met à jour si elle est
+         ouverte. Hors de .layout : la page derrière devient inerte. -->
+    <div class="modal" id="temp-modal" hidden role="dialog" aria-modal="true"
+         aria-labelledby="temp-modal-title">
+        <div class="card modal-card">
+            <div class="modal-head">
+                <h2 id="temp-modal-title">Température des moteurs</h2>
+                <button class="btn tool" id="temp-modal-refresh"
+                        title="Nouveau relevé">
+                    <span class="icon">⟳</span>
+                    <span>Actualiser</span>
+                </button>
+                <button class="modal-close" id="temp-modal-close"
+                        aria-label="Fermer">×</button>
+            </div>
+            <table class="temp-table">
+                <thead>
+                    <tr><th>Moteur</th><th>Nom technique</th><th class="temp-val">°C</th></tr>
+                </thead>
+                <tbody id="temp-modal-body">
+                    <tr><td colspan="3" class="temp-empty">Relevé en cours…</td></tr>
+                </tbody>
+            </table>
+            <div class="modal-foot" id="temp-modal-foot"></div>
+        </div>
+    </div>
+
     <div class="calib" id="calib" hidden>
         <div class="calib-panel">
             <div class="calib-head">
@@ -993,6 +1116,12 @@
         const servicesList = document.getElementById('services-list');
         const battValue = document.getElementById('batt-value');
         const battSub = document.getElementById('batt-sub');
+        const tempModal = document.getElementById('temp-modal');
+        const tempModalBody = document.getElementById('temp-modal-body');
+        const tempModalFoot = document.getElementById('temp-modal-foot');
+        const tempModalClose = document.getElementById('temp-modal-close');
+        const tempModalRefresh = document.getElementById('temp-modal-refresh');
+        const layout = document.querySelector('.layout');
 
         const STATUS = {
             idle: 'Prêt',
@@ -1041,6 +1170,7 @@
             // Sans robot, la température répond simplement « indisponible ».
             btnTemp.disabled = offline;
             tempAuto.disabled = offline;
+            tempModalRefresh.disabled = offline;
             // Griser la case n'émet aucun 'change' : sans cet arrêt, le
             // relevé continuerait à tourner et à échouer en 503 toutes
             // les 30 s, case grisée donc impossible à décocher.
@@ -1114,39 +1244,62 @@
         const TEMP_INTERVAL_MS = 30000;
         let tempTimer = null;
 
+        function libelle(data, nom) {
+            return data.labels[nom] || nom;
+        }
+
         async function releverTemperatures() {
+            let data;
             try {
                 const r = await fetch('/api/temperatures');
                 if (!r.ok) {
+                    const d = await r.json().catch(() => ({}));
                     tempValue.textContent = '—';
                     tempValue.className = 'temp-badge';
                     tempSub.textContent = 'Relevé indisponible';
+                    afficherErreurFenetre(d.detail || 'Relevé indisponible');
                     return;
                 }
-                const data = await r.json();
-                tempValue.textContent = (data.max === null)
-                    ? '—' : Math.round(data.max) + ' °C';
-                tempValue.className = 'temp-badge '
-                    + (data.verdict === 'ok' ? '' : data.verdict);
-
-                // Le détail moteur par moteur au survol : utile au
-                // diagnostic, sans encombrer l'écran.
-                tempValue.title = Object.entries(data.joints)
-                    .map(([nom, v]) => nom + ' : '
-                        + (v === null ? '?' : v + ' °C'))
-                    // String.fromCharCode(10) plutôt qu'un échappement :
-                    // une séquence backslash-n dans ce fichier a déjà été
-                    // transformée en vraie fin de ligne, ce qui coupe la
-                    // chaîne et rend TOUT le script inerte.
-                    .join(String.fromCharCode(10));
-
-                const heure = new Date().toLocaleTimeString('fr-FR',
-                    { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                tempSub.textContent = 'Maximum relevé à ' + heure
-                    + ' — seuil d’arrêt ' + data.thresholds.cooldown + ' °C';
+                data = await r.json();
             } catch (e) {
+                // Ici, et seulement ici, l'erreur est bien réseau.
                 tempSub.textContent = 'Relevé impossible';
+                afficherErreurFenetre('Relevé impossible : serveur injoignable');
+                return;
             }
+
+            const heure = new Date().toLocaleTimeString('fr-FR',
+                { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            // Le maximum ET son moteur : « 47 °C » seul ne disait rien.
+            tempValue.textContent = (data.max === null) ? '—'
+                : Math.round(data.max) + ' °C · ' + libelle(data, data.hottest);
+            tempValue.className = 'temp-badge '
+                + (data.verdict === 'ok' ? '' : data.verdict);
+            tempValue.title = data.hottest
+                ? 'Moteur le plus chaud : ' + libelle(data, data.hottest)
+                  + ' (' + data.hottest + ')'
+                : 'Aucun moteur ne remonte de température';
+            tempSub.textContent = 'Maximum relevé à ' + heure
+                + ' — seuil d’arrêt ' + data.thresholds.cooldown + ' °C';
+
+            try {
+                rendreFenetreTemperatures(data, heure);
+            } catch (e) {
+                // Un défaut d'affichage n'est pas une panne réseau : ne pas
+                // envoyer l'opérateur vérifier le serveur pour rien.
+                afficherErreurFenetre('Affichage impossible : ' + e.message);
+            }
+        }
+
+        // Sans cela, la fenêtre resterait sur « Relevé en cours… » pour
+        // toujours, ou garderait d’anciennes valeurs avec leur ancienne heure.
+        function afficherErreurFenetre(message) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td colspan="3" class="temp-empty"></td>';
+            tr.firstChild.textContent = message;
+            tempModalBody.replaceChildren(tr);
+            tempModalFoot.textContent = '';
         }
 
         // La sécurité batterie de Pollen ne prévient que dans le journal
@@ -1189,7 +1342,88 @@
             releverBatterie();
         }
 
-        btnTemp.addEventListener('click', releverCapteurs);
+        // « Relever » ouvre la fenêtre, puis relève : l'utilisateur voit
+        // tout de suite où le résultat va apparaître.
+        btnTemp.addEventListener('click', () => {
+            ouvrirFenetreTemperatures();
+            releverCapteurs();
+        });
+
+        function ouvrirFenetreTemperatures() {
+            // Toujours repartir de « en cours » : rouvrir ne doit pas
+            // montrer le relevé précédent, avec son heure, comme s'il
+            // était d'aujourd'hui.
+            afficherErreurFenetre('Relevé en cours…');
+            tempModal.hidden = false;
+            // ⚠️ Sans cela, Tab sort de la fenêtre vers les boutons cachés
+            // sous le voile — et Entrée sur « Lancer une partie » ferait
+            // bouger le bras depuis une fenêtre de températures.
+            layout.inert = true;
+            tempModalClose.focus();
+        }
+
+        function fermerFenetreTemperatures() {
+            tempModal.hidden = true;
+            layout.inert = false;
+            btnTemp.focus();
+        }
+
+        tempModalClose.addEventListener('click', fermerFenetreTemperatures);
+        tempModalRefresh.addEventListener('click', releverTemperatures);
+        // Clic à côté de la carte : sur le voile, pas dans la fenêtre.
+        tempModal.addEventListener('click', (e) => {
+            if (e.target === tempModal) fermerFenetreTemperatures();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (tempModal.hidden) return;
+            if (e.key === 'Escape') { fermerFenetreTemperatures(); return; }
+            if (e.key !== 'Tab') return;
+            // Repli pour les navigateurs sans `inert` (Safari < 15.5,
+            // Chrome < 102) : le focus boucle dans la fenêtre au lieu de
+            // filer vers les boutons cachés sous le voile.
+            const focusables = tempModal.querySelectorAll(
+                'button:not([disabled]), [href], input, [tabindex]:not([tabindex="-1"])');
+            if (!focusables.length) return;
+            const premier = focusables[0];
+            const dernier = focusables[focusables.length - 1];
+            const actif = document.activeElement;
+            if (!tempModal.contains(actif)) {
+                e.preventDefault(); premier.focus();
+            } else if (e.shiftKey && actif === premier) {
+                e.preventDefault(); dernier.focus();
+            } else if (!e.shiftKey && actif === dernier) {
+                e.preventDefault(); premier.focus();
+            }
+        });
+
+        function rendreFenetreTemperatures(data, heure) {
+            // Du plus chaud au plus froid ; les moteurs muets en dernier.
+            const valeur = (v) => (v === null ? -1e9 : v);
+            const lignes = Object.entries(data.joints)
+                .sort((a, b) => valeur(b[1]) - valeur(a[1]));
+
+            tempModalBody.replaceChildren(...lignes.map(([nom, v]) => {
+                const etat = (v === null) ? 'none'
+                    : (v > data.thresholds.cooldown) ? 'cooldown'
+                    : (v > data.thresholds.warn) ? 'warm' : 'ok';
+                const tr = document.createElement('tr');
+                tr.className = 'temp-row ' + etat;
+                tr.innerHTML = '<td class="temp-name"></td>'
+                    + '<td class="temp-tech"></td>'
+                    + '<td class="temp-val"></td>';
+                tr.children[0].textContent = libelle(data, nom);
+                tr.children[1].textContent = nom;
+                tr.children[2].textContent = (v === null) ? '—' : v.toFixed(1) + ' °C';
+                return tr;
+            }));
+
+            const muets = lignes.filter(([, v]) => v === null).length;
+            tempModalFoot.textContent = 'Relevé à ' + heure
+                + ' — orange au-dessus de ' + data.thresholds.warn
+                + ' °C, rouge au-dessus de ' + data.thresholds.cooldown
+                + ' °C (la partie s’interrompt pour refroidir)'
+                + (muets ? ' — « — » : ce moteur ne remonte pas de température' : '');
+        }
 
         function arreterSuiviTemperature() {
             if (tempTimer) { clearInterval(tempTimer); tempTimer = null; }
