@@ -10,9 +10,12 @@ le robot entier — interface comprise. On n'expose donc que des clés
 connues, jamais un nom d'unité venu de l'extérieur, et la commande est
 toujours une **liste** d'arguments (jamais ``shell=True``).
 
-⚠️ **Ponctuel = ``start``, jamais ``enable``.** Réactiver au démarrage
-irait exactement contre le but : économiser les ressources par défaut.
-Après un redémarrage du robot, tout revient à l'état économe.
+⚠️ **Ponctuel = ``start``, jamais ``enable``.** Ce module ne change jamais
+l'état au démarrage : après un redémarrage du robot, chaque service revient
+à ce que systemd a en mémoire. Depuis le 2026-09-28 la base mobile est
+**activée au boot** (elle porte la sécurité batterie) : l'arrêter d'ici
+suspend cette sécurité jusqu'au prochain redémarrage — d'où sa description
+explicite. Le tableau de bord, lui, reste désactivé au boot.
 
 ⚠️ Les services retenus (tableau de bord, base mobile) ne pilotent **ni
 les bras ni la tête** : ils ne peuvent pas entrer en conflit avec une
@@ -40,7 +43,13 @@ SERVICES = {
     'mobile_base': {
         'unit': 'reachy_mobile_base.service',
         'label': 'Base mobile',
-        'description': 'Le service de la base mobile.',
+        # ⚠️ Ce service porte la SÉCURITÉ BATTERIE de Pollen
+        # (zuuu_hal.check_battery : alerte sous 24,5 V, freinage d'urgence
+        # sous 23,1 V). L'arrêter la désactive jusqu'au prochain démarrage.
+        'description': 'Porte la sécurité batterie (alerte sous 24,5 V, '
+                       'arrêt d’urgence sous 23,1 V). Actif au démarrage '
+                       'depuis le 28/09 ; l’arrêter coupe cette sécurité '
+                       'jusqu’au prochain redémarrage du robot.',
     },
 }
 
