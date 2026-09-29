@@ -25,7 +25,9 @@ from .rl_agent import value_actions
 from . import behavior
 from .config import (GRIPPER_OPEN, GRIPPER_CLOSED,
                      GRIPPER_HOLDING_THRESHOLD, CAMERA_CONFIG,
-                     TEMPERATURE_COOLDOWN, TEMPERATURE_RESUME)
+                     TEMPERATURE_COOLDOWN, TEMPERATURE_RESUME,
+                     COOLDOWN_CHECK_PERIOD)
+from .fans import FanSupervisor
 
 
 logger = logging.getLogger('reachy.tictactoe')
@@ -127,6 +129,8 @@ class TictactoePlayground(object):
         self.used_thinking_sounds = set()
         # Thread de préchargement
         self._preload_thread = None
+        # Supervision des ventilateurs (démarrée au setup, arrêtée au close).
+        self.fan_supervisor = None
         # Fenêtre OpenCV disponible ? Passe à False au premier échec
         # (pas d'écran, ou appel depuis un thread de fond).
         self._display_available = True
@@ -254,6 +258,14 @@ class TictactoePlayground(object):
             self._preload_thread = Thread(target=self._preload_resources, daemon=True)
             self._preload_thread.start()
         
+        # Ventilateurs : le contrôleur de Pollen ignore wrist_roll et les
+        # pinces, les moteurs les plus chauds du jeu. On les pilote nous-
+        # mêmes, sur tous les moteurs de chaque zone (voir fans.py).
+        if self.fan_supervisor is None:
+            self.fan_supervisor = FanSupervisor(self.reachy.fans,
+                                                self.read_temperatures)
+            self.fan_supervisor.start()
+
         # Activer les moteurs des antennes
         self.safe_turn_on('head')
         
@@ -324,13 +336,21 @@ class TictactoePlayground(object):
         self.close()
 
     def close(self):
-        """Désactive tous les moteurs.
+        """Désactive tous les moteurs et relâche les ventilateurs.
 
         Extrait de ``__exit__`` pour les appelants qui ne peuvent pas
         utiliser un ``with`` : l'interface web construit le playground
         dans un fil de connexion et le ferme à l'arrêt du serveur.
         """
-        self.reachy.turn_off_smoothly('reachy')
+        # ⚠️ Le couple D'ABORD : c'est la raison d'être de close(). Un appel
+        # ventilateur figé (gRPC sans délai) ne doit pas l'empêcher.
+        try:
+            self.reachy.turn_off_smoothly('reachy')
+        finally:
+            if self.fan_supervisor is not None:
+                # Pollen croit nos ventilateurs éteints : sans ce
+                # relâchement, ils tourneraient jusqu'au redémarrage.
+                self.fan_supervisor.stop()
         
     # Playground and game functions
     
@@ -1243,35 +1263,60 @@ class TictactoePlayground(object):
             return bool(np.any(np.array(motor_temps) > TEMPERATURE_COOLDOWN))
         return False
         
-    def wait_for_cooldown(self, move_to_rest=True):
-        """Attend que les moteurs refroidissent.
+    def wait_for_cooldown(self, move_to_rest=True, should_stop=None,
+                          report=None, check_period=COOLDOWN_CHECK_PERIOD):
+        """Attend que le moteur le plus chaud repasse sous la reprise.
+
+        ⚠️ Interruptible et visible — incident du 2026-09-29 : l'ancienne
+        boucle dormait 30 s d'affilée sans jamais lire le drapeau d'arrêt,
+        et exigeait que TOUS les moteurs passent sous 45 °C alors que
+        poignets et pinces stagnent à 46–48 °C couple coupé. « Arrêter »
+        n'avait aucun effet, pendant plus d'une heure.
 
         Args:
             move_to_rest: replier le bras avant d'attendre. À laisser à
                 False quand il est DÉJÀ au repos et hors tension — sinon
                 on le réalimente pour toute la durée du refroidissement,
                 ce qui va exactement contre le but recherché.
+            should_stop: prédicat d'arrêt, consulté **chaque seconde**.
+            report: ``report(hottest_name, temperature)`` à chaque relevé,
+                pour que l'interface dise où l'on en est.
+            check_period: secondes entre deux relevés.
+
+        Returns:
+            bool: True si refroidi, False si interrompu par ``should_stop``.
         """
         if move_to_rest:
             self.goto_rest_position()
 
-
         while True:
             temperatures = self.read_temperatures()
+            valides = {n: t for n, t in temperatures.items() if t is not None}
+            if not valides:
+                # Aucune mesure exploitable : on ne peut pas juger, on ne
+                # retient pas le robot prisonnier (l'ancien code bouclait
+                # sans fin dans ce cas).
+                logger.warning('Cooldown: aucune température lisible, on reprend')
+                return True
 
+            hottest = max(valides, key=valides.get)
+            maximum = valides[hottest]
             logger.warning(
-                'Motors cooling down...',
-                extra={
-                    'temperatures': temperatures
-                },
-            )
-            
-            motor_temps = [t for t in temperatures.values() if t is not None]
-            if motor_temps and np.all(
-                    np.array(motor_temps) < TEMPERATURE_RESUME):
-                break
-                
-            time.sleep(30)
+                f'Motors cooling down... plus chaud : {hottest} {maximum:.1f} °C, '
+                f'reprise sous {TEMPERATURE_RESUME} °C')
+            if report is not None:
+                report(hottest, maximum)
+
+            if maximum < TEMPERATURE_RESUME:
+                return True
+
+            # Dormir par pas d'une seconde : le drapeau d'arrêt doit être
+            # vu tout de suite, pas au prochain relevé.
+            for _ in range(int(check_period)):
+                if should_stop is not None and should_stop():
+                    logger.info('Cooldown interrompu à la demande')
+                    return False
+                time.sleep(1)
             
     def enter_sleep_mode(self):
         """Entre en mode veille"""

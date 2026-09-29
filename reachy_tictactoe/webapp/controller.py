@@ -116,21 +116,17 @@ class RobotController:
 
         L'interface permet d'enchaîner les parties d'un clic : sans ce
         contrôle elle contournerait le seuil de 50 °C.
+
+        ⚠️ Le drapeau d'arrêt est remis à zéro AVANT l'attente : un clic
+        sur « Arrêter » pendant la partie signifie « arrête la partie »,
+        pas « renonce à la protection thermique ». Sinon l'attente
+        revenait aussitôt « interrompue » et une nouvelle partie pouvait
+        démarrer moteurs à 51 °C. L'écran dit qu'un nouveau clic
+        interrompt l'attente.
         """
-        playground = self._session.playground
-        if not playground.need_cooldown():
-            return
-        logger.warning('Refroidissement nécessaire')
-        # Bras déjà au repos et hors tension (rest) : on ne le réalimente
-        # pas, seule la tête l'est pour animer les antennes.
-        playground.safe_turn_on('head')
-        playground.enter_sleep_mode()
-        try:
-            playground.wait_for_cooldown(move_to_rest=False)
-        finally:
-            playground.leave_sleep_mode()
-            playground.invalidate_head_aim()
-        logger.info('Refroidissement terminé')
+        self._session.reset_stop()
+        self._session.cooldown_if_needed(
+            should_stop=self._session.stop_requested)
 
     # -- Interne ----------------------------------------------------------
 

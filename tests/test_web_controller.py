@@ -159,25 +159,34 @@ class TestProtectionThermique:
 
     def test_le_refroidissement_est_verifie_apres_chaque_partie(self):
         """L'interface enchaîne les parties : sans ce contrôle, elle
-        contournerait la protection à 50 °C que la CLI applique."""
+        contournerait la protection à 50 °C que la CLI applique. La
+        séquence elle-même vit dans la session (une seule copie, CLI et
+        interface) : le contrôleur la déclenche avec le drapeau d'arrêt."""
         session = MagicMock()
-        session.playground.need_cooldown.return_value = True
         ctrl = RobotController(session)
 
         ctrl.start_game()
         ctrl.wait(timeout=3)
 
-        session.playground.wait_for_cooldown.assert_called_once()
+        session.cooldown_if_needed.assert_called_once_with(
+            should_stop=session.stop_requested)
 
-    def test_pas_de_refroidissement_si_les_moteurs_sont_froids(self):
+    def test_le_drapeau_d_arret_est_remis_a_zero_avant_l_attente(self):
+        """Un clic sur Arrêter pendant la partie ne doit pas dispenser du
+        refroidissement : le drapeau est effacé juste avant l'attente,
+        l'écran dit qu'un nouveau clic l'interrompt."""
         session = MagicMock()
-        session.playground.need_cooldown.return_value = False
         ctrl = RobotController(session)
 
         ctrl.start_game()
         ctrl.wait(timeout=3)
 
-        session.playground.wait_for_cooldown.assert_not_called()
+        noms = [nom for nom, _, _ in session.mock_calls]
+        assert noms.index('play_one_game') < noms.index('cooldown_if_needed')
+        dernier_reset = max(i for i, n in enumerate(noms) if n == 'reset_stop')
+        assert dernier_reset > noms.index('play_one_game'), (
+            'reset_stop du démarrage ne suffit pas : la partie a pu lever le drapeau')
+        assert dernier_reset < noms.index('cooldown_if_needed')
 
 
 class TestActionsDisponibles:

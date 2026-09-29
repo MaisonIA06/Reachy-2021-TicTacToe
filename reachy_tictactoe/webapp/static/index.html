@@ -432,6 +432,8 @@
             background: rgba(26, 58, 92, 0.55);
         }
 
+        .status-dot.cooling { background: #f0b45a; box-shadow: 0 0 0 4px rgba(240, 180, 90, 0.20); }
+
         .status-dot.error,
         .status-dot.disconnected { background: #f07070; box-shadow: 0 0 0 4px rgba(240, 112, 112, 0.20); }
 
@@ -1125,6 +1127,7 @@
 
         const STATUS = {
             idle: 'Prêt',
+            cooling: 'Refroidissement',
             disconnected: 'Robot injoignable',
             playing: 'Partie en cours',
             finished: 'Partie terminée',
@@ -1418,7 +1421,12 @@
             }));
 
             const muets = lignes.filter(([, v]) => v === null).length;
-            tempModalFoot.textContent = 'Relevé à ' + heure
+            const libellesFans = data.fan_labels || {};
+            const actifs = Object.entries(data.fans || {})
+                .filter(([, on]) => on).map(([nom]) => libellesFans[nom] || nom);
+            tempModalFoot.textContent = 'Ventilateurs en marche : '
+                + (actifs.length ? actifs.join(', ') : 'aucun')
+                + ' — relevé à ' + heure
                 + ' — orange au-dessus de ' + data.thresholds.warn
                 + ' °C, rouge au-dessus de ' + data.thresholds.cooldown
                 + ' °C (la partie s’interrompt pour refroidir)'

@@ -22,7 +22,7 @@ from ..game_launcher import GameState
 from .calibration import apply_calibration
 from .controller import RobotBusy
 from .battery import BatteryUnavailable, verdict as battery_verdict
-from .joints import labels_for
+from ..joints import fan_label, labels_for
 from .link import StaticLink
 from . import services as services_module
 
@@ -380,10 +380,17 @@ def create_app(session=None, controller=None, health=None, link=None,
         else:
             verdict = 'ok'
 
+        superviseur = getattr(session_courante.playground, 'fan_supervisor', None)
+        fans = superviseur.states() if superviseur is not None else {}
+        if not isinstance(fans, dict):
+            fans = {}
+
         return {
             'joints': releve,
             'labels': labels_for(releve),
             'hottest': hottest,
+            'fans': fans,
+            'fan_labels': {nom: fan_label(nom) for nom in fans},
             'max': maximum,
             'verdict': verdict,
             'thresholds': {'warn': config.TEMPERATURE_WARN,

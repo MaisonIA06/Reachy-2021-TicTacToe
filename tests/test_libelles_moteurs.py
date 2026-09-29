@@ -26,14 +26,14 @@ class TestLibelles:
 
     @pytest.mark.parametrize('nom', MOTEURS_DU_ROBOT)
     def test_chaque_moteur_du_robot_a_un_libelle_francais(self, nom):
-        from reachy_tictactoe.webapp.joints import label
+        from reachy_tictactoe.joints import label
 
         libelle = label(nom)
         assert libelle != nom, f'{nom} : pas de libellé, le nom technique s’afficherait seul'
         assert '_' not in libelle, f'{nom} : {libelle!r} ressemble à un nom technique'
 
     def test_droite_et_gauche_sont_distinguees(self):
-        from reachy_tictactoe.webapp.joints import label
+        from reachy_tictactoe.joints import label
 
         assert label('r_gripper') != label('l_gripper')
         assert 'droit' in label('r_gripper').lower()
@@ -53,13 +53,13 @@ class TestLibelles:
     def test_le_cote_s_accorde_en_genre(self, nom, attendu):
         """« Coude droite » s'affichait : le côté doit s'accorder avec le
         nom du segment, pas être le même mot partout."""
-        from reachy_tictactoe.webapp.joints import label
+        from reachy_tictactoe.joints import label
         assert label(nom) == attendu
 
     def test_un_nom_inconnu_retombe_sur_le_nom_technique(self):
         """Un moteur inattendu doit s'afficher plutôt que faire planter
         la fenêtre — le nom technique vaut mieux que rien."""
-        from reachy_tictactoe.webapp.joints import label
+        from reachy_tictactoe.joints import label
 
         assert label('mystery_motor') == 'mystery_motor'
 

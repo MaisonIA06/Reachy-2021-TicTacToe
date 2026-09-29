@@ -49,6 +49,25 @@ def label(name):
     return libelle
 
 
+_ZONES_VENTILATEUR = {
+    'shoulder': ('épaule', 'f'),
+    'elbow': ('coude', 'm'),
+    'wrist': ('poignet', 'm'),
+}
+
+
+def fan_label(name):
+    """Libellé français d'un ventilateur (« poignet droit »), ou son nom."""
+    cote, _, reste = name.partition('_')
+    if cote not in _COTES or not reste.endswith('_fan'):
+        return name
+    zone = reste[:-len('_fan')]
+    if zone not in _ZONES_VENTILATEUR:
+        return name
+    nom, genre = _ZONES_VENTILATEUR[zone]
+    return f'{nom} {_COTES[cote][genre]}'
+
+
 def labels_for(names):
     """``{nom_technique: libellé}`` pour une liste de moteurs."""
     return {name: label(name) for name in names}

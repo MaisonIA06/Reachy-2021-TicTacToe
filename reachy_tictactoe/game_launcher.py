@@ -12,6 +12,8 @@ import numpy as np
 
 import zzlog
 
+from .config import TEMPERATURE_RESUME
+from .joints import label
 from . import TictactoePlayground
 from .tictactoe_playground import PawnNotGrabbed
 
@@ -373,6 +375,66 @@ class GameSession:
             except Exception as e:
                 logger.error(f'Mise au repos incomplète : {e}', exc_info=True)
 
+    def cooldown_if_needed(self, should_stop=None):
+        """Protection thermique, partagée par la CLI et l'interface.
+
+        Bras déjà au repos et hors tension (``rest``) : on ne le
+        réalimente pas, seule la tête l'est pour animer les antennes — le
+        signal visible que le robot attend.
+
+        Args:
+            should_stop: prédicat consulté chaque seconde pendant l'attente.
+
+        Returns:
+            bool: True si rien à faire ou refroidi, False si interrompu.
+        """
+        playground = self._playground
+        if not playground.need_cooldown():
+            return True
+        logger.warning('Refroidissement nécessaire')
+        playground.safe_turn_on('head')
+        playground.enter_sleep_mode()
+        cooled = False
+        try:
+            cooled = playground.wait_for_cooldown(
+                move_to_rest=False, should_stop=should_stop,
+                report=self.report_cooling)
+        finally:
+            # L'écran d'abord : si la sortie de veille lève (SDK tombé),
+            # l'état ne doit pas rester sur « Refroidissement » alors que
+            # le robot est déclaré libre.
+            self.end_cooling(cooled)
+            try:
+                playground.leave_sleep_mode()
+            finally:
+                playground.invalidate_head_aim()
+        logger.info('Refroidissement terminé' if cooled
+                    else 'Refroidissement interrompu')
+        return cooled
+
+    def report_cooling(self, hottest, temperature):
+        """Publie l'avancement du refroidissement (appelé à chaque relevé).
+
+        Sans cela l'écran affichait « Partie terminée » avec un bouton
+        grisé : l'état du jeu disait *fini*, l'état du robot disait
+        *occupé*, et rien n'expliquait la contradiction. ``winner`` est
+        effacé : la page titre le gagnant dès qu'il est renseigné, et
+        « Refroidissement » ne s'afficherait jamais.
+        """
+        self._publish(
+            status='cooling', current_player=None, winner=None,
+            message=f'Refroidissement : {label(hottest)} à {temperature:.0f} °C '
+                    f'— reprise sous {TEMPERATURE_RESUME} °C. '
+                    f'« Arrêter » interrompt l’attente.')
+
+    def end_cooling(self, cooled):
+        """Clôt le refroidissement, terminé ou interrompu."""
+        self._publish(
+            status='idle',
+            message='Refroidissement terminé' if cooled
+            else 'Refroidissement interrompu — moteurs encore chauds, '
+                 'la protection reprendra à la fin de la prochaine partie')
+
     def request_stop(self):
         """Demande l'arrêt de l'action en cours (coopératif).
 
@@ -482,14 +544,9 @@ def main():
                     # ne le réalimente PAS, seule la tête l'est pour animer
                     # les antennes (sinon l'animation de veille pilote des
                     # moteurs compliants et ne produit rien).
-                    if tictactoe_playground.need_cooldown():
-                        logger.warning('Reachy needs cooldown')
-                        tictactoe_playground.safe_turn_on('head')
-                        tictactoe_playground.enter_sleep_mode()
-                        tictactoe_playground.wait_for_cooldown(move_to_rest=False)
-                        tictactoe_playground.leave_sleep_mode()
-                        tictactoe_playground.invalidate_head_aim()
-                        logger.info('Reachy cooldown finished')
+                    # Même séquence que l'interface (interruptible,
+                    # publiée) : une seule copie à maintenir.
+                    session.cooldown_if_needed()
 
                     if args.once:
                         break

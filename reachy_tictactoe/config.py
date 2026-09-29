@@ -97,9 +97,23 @@ CAMERA_CONFIG = {
 #: Au-dessus, le jeu s'interrompt et attend un refroidissement.
 TEMPERATURE_COOLDOWN = 50
 
-#: Seuil de reprise : on ne repart que sous cette valeur. Plus bas que le
-#: seuil d'alerte pour éviter de repartir et s'arrêter en boucle.
-TEMPERATURE_RESUME = 45
+#: Seuil de reprise : on ne repart que quand le moteur le plus chaud est
+#: repassé sous cette valeur. ⚠️ Était 45 : à peine sous la température de
+#: repos des poignets et des pinces (46–48 °C mesurés couple coupé, qui ne
+#: perdent qu'1 °C par 5 à 10 min). Le refroidissement durait une heure au
+#: moins — incident du 2026-09-29. 3 °C d'hystérésis sous le déclenchement
+#: suffisent, et se franchissent en quelques minutes.
+TEMPERATURE_RESUME = 47
+
+#: Intervalle entre deux relevés pendant le refroidissement (s). Le drapeau
+#: d'arrêt, lui, est consulté chaque seconde.
+COOLDOWN_CHECK_PERIOD = 30
+
+# Ventilateurs : mêmes seuils que le contrôleur de Pollen (fans_controller),
+# qui allume à 45 °C et éteint sous 43 °C — mais nous, sur TOUS les moteurs
+# de la zone, pas seulement les *_pitch. Voir reachy_tictactoe/fans.py.
+FAN_ON_TEMPERATURE = 45
+FAN_OFF_TEMPERATURE = 43
 
 #: Au-dessus, on prévient sans interrompre.
 TEMPERATURE_WARN = 45
